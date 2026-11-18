@@ -1,0 +1,30 @@
+flowchart TD
+    A([Estudante]) --> B["Discord: /rascunho_tcc"]
+    B --> C["bot.js<br/>Recebe o comando"]
+    C --> D["ia-tcc.js<br/>Coordena o processo"]
+    D --> E["pesquisa-academica.js"]
+    E --> F[("OpenAlex API")]
+    F --> G["Metadados e resumo<br/>quando disponível"]
+    G --> H["extrairResumo()<br/>Reconstrói o resumo"]
+    H --> I["classificarRelevancia()<br/>Compara palavras-chave"]
+    I --> J["Lista de fontes<br/>com pontuação e motivo"]
+    J --> K["Gemini<br/>Gera rascunho com base nas fontes"]
+    J --> L["Relatório da pesquisa"]
+    J --> M["Referências preliminares"]
+    K --> N["ia-tcc.js reúne os resultados"]
+    L --> N
+    M --> N
+    N --> O["Arquivo .txt enviado ao Discord"]
+
+    P[".env<br/>Chaves e configurações"] -.-> D
+    Q[("PostgreSQL<br/>Dados do bot")] -. "Usado conforme os módulos existentes" .-> C
+    R["teste-pesquisa-academica.js<br/>Valida pesquisa e classificação"] -.-> E
+
+    classDef entrada fill:#DCEAFE,stroke:#2563EB,color:#172554
+    classDef pesquisa fill:#DCFCE7,stroke:#16A34A,color:#14532D
+    classDef ia fill:#F3E8FF,stroke:#9333EA,color:#581C87
+    classDef saida fill:#FEF3C7,stroke:#D97706,color:#78350F
+    class A,B,C entrada
+    class E,F,G,H,I,J pesquisa
+    class D,K,N ia
+    class L,M,O saida
