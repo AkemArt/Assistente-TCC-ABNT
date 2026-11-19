@@ -602,4 +602,91 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .setTitle('✅ Presença Registrada')
           .setDescription(`Olá, **${mappedName}**!\nSua presença geral no Discord foi confirmada (nenhuma aula ativa no momento).`)
           .addFields(
-            { name: '📅 Hoje', value: '
+            { name: '📅 Hoje', value: 'Confirmada', inline: true },
+            { name: '📊 Total', value: String(totalPresencas), inline: true }
+          )
+          .setColor('#5865F2')
+          .setFooter({ text: 'Mercury Class' })
+          .setTimestamp();
+
+        return interaction.reply({ embeds: [embed] });
+      }
+
+      // Sub-Caso 2: Exatamente uma aula ativa -> registra presença automaticamente
+      if (activeSessions.rowCount === 1) {
+        const sessionId = activeSessions.rows[0].id;
+        const classId = activeSessions.rows[0].class_id;
+        const className = activeSessions.rows[0].class_name;
+
+        const checkAtt = await db.query(
+          `SELECT 1 FROM attendances WHERE class_session_id = $1 AND student_name = $2`,
+          [sessionId, mappedName]
+        );
+        if (checkAtt.rowCount === 0) {
+          await db.query(
+            `INSERT INTO attendances (class_session_id, class_id, student_name, login_at, student_id) VALUES ($1, $2, $3, NOW(), $4)`,
+            [sessionId, classId, mappedName, userId]
+          );
+        }
+
+        // 💾 salva presença geral na tabela Discord
+        await db.query(
+          `INSERT INTO presencas (user_id, username, guild_id, data) VALUES ($1, $2, $3, NOW())`,
+          [userId, username, guildId]
+        );
+
+        const total = await db.query(
+          `SELECT COUNT(*) as total FROM presencas WHERE user_id = $1 AND guild_id = $2`,
+          [userId, guildId]
+        );
+        const totalPresencas = total.rows[0].total;
+
+        const embed = new EmbedBuilder()
+          .setTitle('✅ Presença Registrada')
+          .setDescription(`Olá, **${mappedName}**!\n📖 **Chamada Escolar:** Presença confirmada na aula ativa de **${className}**!`)
+          .addFields(
+            { name: '📅 Matéria', value: className, inline: true },
+            { name: '📊 Total', value: String(totalPresencas), inline: true }
+          )
+          .setColor('#5865F2')
+          .setFooter({ text: 'Mercury Class' })
+          .setTimestamp();
+
+        return interaction.reply({ embeds: [embed] });
+      }
+
+      // Sub-Caso 3: Múltiplas aulas ativas -> gera botões interativos para escolha
+      const embed = new EmbedBuilder()
+        .setTitle('🏫 Escolha sua Aula')
+        .setDescription(`Olá, **${mappedName}**!\nIdentificamos mais de uma aula ativa no momento. Clique no botão correspondente para registrar sua presença:`)
+        .setColor('#5865F2')
+        .setFooter({ text: 'Mercury Class' })
+        .setTimestamp();
+
+      const row = new ActionRowBuilder();
+      activeSessions.rows.forEach(session => {
+        const emoji = getEmojiForClass(session.class_name);
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`presenca_aula_${session.id}_${session.class_id}`)
+            .setLabel(`${emoji} ${session.class_name}`)
+            .setStyle(ButtonStyle.Primary)
+        );
+      });
+
+      return interaction.reply({
+        embeds: [embed],
+        components: [row],
+        ephemeral: true
+      });
+    } catch (error) {
+      console.error(error);
+      await interaction.reply({
+        content: '❌ Erro ao registrar presença.',
+        ephemeral: true
+      });
+    }
+  }
+});
+
+client.login(BOT_TOKEN);
