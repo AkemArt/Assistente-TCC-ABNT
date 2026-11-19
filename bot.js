@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const {
   Client,
   GatewayIntentBits,
@@ -18,32 +18,32 @@ const db = require('./database');
 const stats = require('./stats');
 const tccProjects = require('./tcc-projects');
 const { gerarRascunhoComPesquisa } = require('./ia-tcc');
-console.log('ðŸš€ Iniciando bot Discord...');
+
+console.log('🚀 Iniciando bot Discord...');
 
 const BOT_TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN;
 if (!BOT_TOKEN) {
-  console.error('âŒ TOKEN/DISCORD_TOKEN nÃ£o configurado. O bot nÃ£o pode iniciar.');
+  console.error('❌ TOKEN/DISCORD_TOKEN não configurado. O bot não pode iniciar.');
   process.exit(1);
 }
 
 if (!process.env.DATABASE_URL) {
-  console.warn('âš ï¸ DATABASE_URL nÃ£o configurado. O comando /presenca pode falhar.');
+  console.warn('⚠️ DATABASE_URL não configurado. O comando /presenca pode falhar.');
 }
 
-// ðŸ”¥ cria cliente
+// 🔥 cria cliente
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-// ðŸ§  cooldown em memÃ³ria
+// 🧠 cooldown em memória
 const cooldown = new Map();
-
 
 function getSlashCommands() {
   return [
     new SlashCommandBuilder()
       .setName('presenca')
-      .setDescription('Registrar presenÃ§a'),
+      .setDescription('Registrar presença'),
 
     new SlashCommandBuilder()
       .setName('chamada')
@@ -55,11 +55,11 @@ function getSlashCommands() {
 
     new SlashCommandBuilder()
       .setName('estatisticas')
-      .setDescription('Ver estatÃ­sticas de uso do bot de TCC'),
+      .setDescription('Ver estatísticas de uso do bot de TCC'),
 
     new SlashCommandBuilder()
       .setName('rascunho_tcc')
-      .setDescription('Gerar um rascunho acadÃªmico com IA')
+      .setDescription('Gerar um rascunho acadêmico com IA')
       .addStringOption(option =>
         option
           .setName('tema')
@@ -81,7 +81,7 @@ async function syncSlashCommands(client) {
   const appId = process.env.CLIENT_ID || client.user?.id;
 
   if (!appId) {
-    console.warn('âš ï¸ CLIENT_ID nÃ£o encontrado; nÃ£o foi possÃ­vel sincronizar slash commands.');
+    console.warn('⚠️ CLIENT_ID não encontrado; não foi possível sincronizar slash commands.');
     return;
   }
 
@@ -91,50 +91,50 @@ async function syncSlashCommands(client) {
         Routes.applicationGuildCommands(appId, process.env.GUILD_ID),
         { body: commands }
       );
-      console.log(`âœ… Slash commands sincronizados na guild ${process.env.GUILD_ID}.`);
+      console.log(`✅ Slash commands sincronizados na guild ${process.env.GUILD_ID}.`);
     } else {
       await rest.put(
         Routes.applicationCommands(appId),
         { body: commands }
       );
-      console.log('âœ… Slash commands globais sincronizados (pode levar alguns minutos para aparecer).');
+      console.log('✅ Slash commands globais sincronizados (pode levar alguns minutos para aparecer).');
     }
   } catch (err) {
-    console.error('âŒ Erro ao sincronizar slash commands:', err);
+    console.error('❌ Erro ao sincronizar slash commands:', err);
   }
 }
 
 client.once(Events.ClientReady, () => {
-  console.log(`ðŸ¤– Bot logado como ${client.user.tag}`);
+  console.log(`🤖 Bot logado como ${client.user.tag}`);
   syncSlashCommands(client);
-  stats.initStats().catch(error => console.error('âŒ Falha ao preparar estatÃ­sticas:', error.message));
-  tccProjects.initTccProjects().catch(error => console.error('âŒ Falha ao preparar projetos de TCC:', error.message));
+  stats.initStats().catch(error => console.error('❌ Falha ao preparar estatísticas:', error.message));
+  tccProjects.initTccProjects().catch(error => console.error('❌ Falha ao preparar projetos de TCC:', error.message));
 });
 
 client.on('error', (error) => {
-  console.error('âŒ Erro no cliente Discord:', error);
+  console.error('❌ Erro no cliente Discord:', error);
 });
 
 process.on('unhandledRejection', (reason) => {
-  console.error('âŒ Unhandled Rejection:', reason);
+  console.error('❌ Unhandled Rejection:', reason);
 });
 
 process.on('uncaughtException', (error) => {
-  console.error('âŒ Uncaught Exception:', error);
+  console.error('❌ Uncaught Exception:', error);
 });
 
 function getEmojiForClass(className) {
   const name = className.toLowerCase();
-  if (name.includes('matematica') || name.includes('cÃ¡lculo') || name.includes('calculo') || name.includes('math')) return 'ðŸ§®';
-  if (name.includes('fisica') || name.includes('fÃ­sica') || name.includes('phys')) return 'â³';
-  if (name.includes('quimica') || name.includes('quÃ­mica') || name.includes('chem')) return 'ðŸ§ª';
-  if (name.includes('biolo')) return 'ðŸ§¬';
-  if (name.includes('program') || name.includes('web') || name.includes('comput') || name.includes('dev')) return 'ðŸ’»';
-  if (name.includes('historia') || name.includes('histÃ³ria')) return 'ðŸ“œ';
-  if (name.includes('portugues') || name.includes('portuguÃªs') || name.includes('literatura') || name.includes('redacao')) return 'ðŸ“š';
-  if (name.includes('geografia')) return 'ðŸ—ºï¸';
-  if (name.includes('ingles') || name.includes('inglÃªs') || name.includes('english')) return 'ðŸ‡¬ðŸ‡§';
-  return 'ðŸ«';
+  if (name.includes('matematica') || name.includes('cálculo') || name.includes('calculo') || name.includes('math')) return '🧮';
+  if (name.includes('fisica') || name.includes('física') || name.includes('phys')) return '⏳';
+  if (name.includes('quimica') || name.includes('química') || name.includes('chem')) return '🧪';
+  if (name.includes('biolo')) return '🧬';
+  if (name.includes('program') || name.includes('web') || name.includes('comput') || name.includes('dev')) return '💻';
+  if (name.includes('historia') || name.includes('história')) return '📜';
+  if (name.includes('portugues') || name.includes('português') || name.includes('literatura') || name.includes('redacao')) return '📚';
+  if (name.includes('geografia')) return '🗺️';
+  if (name.includes('ingles') || name.includes('inglês') || name.includes('english')) return '🇬🇧';
+  return '🏫';
 }
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -149,9 +149,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       await interaction.deferReply({ ephemeral: true });
       try {
-        const project = { userId: interaction.user.id, username: interaction.user.username,
-          guildId: interaction.guildId, studentName: nomeAluno, advisorName: orientador,
-          institution: instituicao, course: curso, title: titulo };
+        const project = {
+          userId: interaction.user.id,
+          username: interaction.user.username,
+          guildId: interaction.guildId,
+          studentName: nomeAluno,
+          advisorName: orientador,
+          institution: instituicao,
+          course: curso,
+          title: titulo
+        };
         const saved = await tccProjects.saveProject(project);
         const documentBuffer = await tccProjects.generateTccDocx(project);
 
@@ -169,22 +176,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
 
         const resumo = new EmbedBuilder()
-          .setTitle('ðŸ“š Projeto de TCC salvo e documento criado')
-          .setDescription(`Seu projeto foi salvo no banco de dados (projeto nÂº ${saved.id}) e gerei um modelo Word inicial para vocÃª revisar. Ele contÃ©m capa, folha de rosto e seÃ§Ãµes estruturais; ainda nÃ£o Ã© um TCC pesquisado ou concluÃ­do.`)
+          .setTitle('📚 Projeto de TCC salvo e documento criado')
+          .setDescription(`Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) e gerei um modelo Word inicial para você revisar. Ele contém capa, folha de rosto e seções estruturais; ainda não é um TCC pesquisado ou concluído.`)
           .addFields(
             { name: 'Aluno(a)', value: nomeAluno, inline: false },
             { name: 'Orientador(a)', value: orientador, inline: false },
-            { name: 'InstituiÃ§Ã£o', value: instituicao, inline: true },
+            { name: 'Instituição', value: instituicao, inline: true },
             { name: 'Curso', value: curso, inline: true },
-            { name: 'TÃ­tulo provisÃ³rio', value: titulo, inline: false }
+            { name: 'Título provisório', value: titulo, inline: false }
           )
           .setColor('#5865F2')
-          .setFooter({ text: 'Assistente de TCC â€¢ Modelo inicial para revisÃ£o' });
+          .setFooter({ text: 'Assistente de TCC • Modelo inicial para revisão' });
 
-        return interaction.editReply({ embeds: [resumo], files: [{ attachment: documentBuffer, name: `TCC_modelo_${saved.id}.docx` }] });
+        return interaction.editReply({
+          embeds: [resumo],
+          files: [{ attachment: documentBuffer, name: `TCC_modelo_${saved.id}.docx` }]
+        });
       } catch (error) {
-        console.error('âŒ Falha ao salvar projeto/gerar documento:', error);
-        return interaction.editReply({ content: 'âŒ NÃ£o consegui salvar o projeto ou gerar o Word. Confira se o bot foi reiniciado apÃ³s a atualizaÃ§Ã£o e se a tabela de projetos foi criada no PostgreSQL. Consulte o terminal para ver o erro.' });
+        console.error('❌ Falha ao salvar projeto/gerar documento:', error);
+        return interaction.editReply({
+          content: '❌ Não consegui salvar o projeto ou gerar o Word. Confira se o bot foi reiniciado após a atualização e se a tabela de projetos foi criada no PostgreSQL. Consulte o terminal para ver o erro.'
+        });
       }
     }
 
@@ -201,13 +213,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
 
         await interaction.reply({
-          content: `âœ… Conta vinculada com sucesso a **${realName}**!\nDigite o comando `/presenca` novamente para registrar sua presenÃ§a.`,
+          content: `✅ Conta vinculada com sucesso a **${realName}**!\nDigite o comando \`/presenca\` novamente para registrar sua presença.`,
           ephemeral: true
         });
       } catch (err) {
         console.error(err);
         await interaction.reply({
-          content: 'âŒ Erro ao vincular sua conta.',
+          content: '❌ Erro ao vincular sua conta.',
           ephemeral: true
         });
       }
@@ -227,25 +239,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const guildId = interaction.guild?.id || 'guild_default';
 
       try {
-        // Busca mapeamento
         const mappingRes = await db.query(
           `SELECT real_name FROM discord_mappings WHERE LOWER(discord_username) = LOWER($1)`,
           [username]
         );
         if (mappingRes.rowCount === 0) {
           return interaction.reply({
-            content: 'âš ï¸ Sua conta ainda nÃ£o estÃ¡ vinculada. Por favor, digite `/presenca` para vincular primeiro.',
+            content: '⚠️ Sua conta ainda não está vinculada. Por favor, digite `/presenca` para vincular primeiro.',
             ephemeral: true
           });
         }
 
         const mappedName = mappingRes.rows[0].real_name;
 
-        // Busca nome da sala
         const classRes = await db.query('SELECT name FROM classes WHERE id = $1', [classId]);
         const className = classRes.rowCount > 0 ? classRes.rows[0].name : 'Aula';
 
-        // Registra presenÃ§a na chamada oficial
         const checkAtt = await db.query(
           `SELECT 1 FROM attendances WHERE class_session_id = $1 AND student_name = $2`,
           [sessionId, mappedName]
@@ -257,7 +266,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           );
         }
 
-        // ðŸ’¾ salva presenÃ§a geral na tabela Discord
+        // 💾 salva presença geral na tabela Discord
         await db.query(
           `INSERT INTO presencas (user_id, username, guild_id, data) VALUES ($1, $2, $3, NOW())`,
           [userId, username, guildId]
@@ -270,11 +279,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const totalPresencas = total.rows[0].total;
 
         const embed = new EmbedBuilder()
-          .setTitle('âœ… PresenÃ§a Confirmada!')
-          .setDescription(`OlÃ¡, **${mappedName}**!\nSua presenÃ§a foi registrada com sucesso na matÃ©ria: **${className}**!`)
+          .setTitle('✅ Presença Confirmada!')
+          .setDescription(`Olá, **${mappedName}**!\nSua presença foi registrada com sucesso na matéria: **${className}**!`)
           .addFields(
-            { name: 'ðŸ“… MatÃ©ria', value: className, inline: true },
-            { name: 'ðŸ“Š Total no Discord', value: String(totalPresencas), inline: true }
+            { name: '📅 Matéria', value: className, inline: true },
+            { name: '📊 Total no Discord', value: String(totalPresencas), inline: true }
           )
           .setColor('#10B981')
           .setFooter({ text: 'Mercury Class' })
@@ -286,9 +295,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
           ephemeral: true
         });
       } catch (error) {
-        console.error('Erro ao clicar no botÃ£o de presenÃ§a:', error);
+        console.error('Erro ao clicar no botão de presença:', error);
         await interaction.reply({
-          content: 'âŒ Erro ao registrar presenÃ§a na matÃ©ria selecionada.',
+          content: '❌ Erro ao registrar presença na matéria selecionada.',
           ephemeral: true
         });
       }
@@ -299,7 +308,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   if (!interaction.isChatInputCommand()) return;
 
-  // Registra cada uso de comando. Falha no registro nÃ£o deve impedir o comando principal.
+  // Registra cada uso de comando. Falha no registro não deve impedir o comando principal.
   stats.recordEvent({
     userId: interaction.user.id,
     username: interaction.user.username,
@@ -308,9 +317,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     commandName: interaction.commandName
   });
 
-
-
-  // GeraÃ§Ã£o de rascunho acadÃªmico com pesquisa de fontes
+  // Geração de rascunho acadêmico com pesquisa de fontes
   if (interaction.commandName === 'rascunho_tcc') {
     const tema = interaction.options.getString('tema');
     const objetivo = interaction.options.getString('objetivo') || '';
@@ -325,7 +332,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       });
 
       const arquivo = Buffer.from(
-        resultado.texto || 'A IA nÃ£o retornou texto.',
+        resultado.texto || 'A IA não retornou texto.',
         'utf8'
       );
 
@@ -338,9 +345,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       return interaction.editReply({
         content:
-          'ðŸ“š **Seu rascunho acadÃªmico estÃ¡ pronto!**\n' +
-          `ðŸ”Ž Foram encontradas ${resultado.fontes.length} fontes acadÃªmicas.\n` +
-          'Confira os tÃ­tulos, autores e links; leia as fontes antes de utilizar as informaÃ§Ãµes no TCC e revise o texto com seu orientador.',
+          '📚 **Seu rascunho acadêmico está pronto!**\n' +
+          `🔍 Foram encontradas ${resultado.fontes.length} fontes acadêmicas.\n` +
+          'Confira os títulos, autores e links; leia as fontes antes de utilizar as informações no TCC e revise o texto com seu orientador.',
         files: [
           {
             attachment: arquivo,
@@ -349,52 +356,53 @@ client.on(Events.InteractionCreate, async (interaction) => {
         ]
       });
     } catch (error) {
-      console.error('Erro ao gerar rascunho com pesquisa acadÃªmica:', error);
+      console.error('Erro ao gerar rascunho com pesquisa acadêmica:', error);
 
       return interaction.editReply({
         content:
-          'âŒ NÃ£o foi possÃ­vel gerar o rascunho ou pesquisar as fontes. ' +
+          '❌ Não foi possível gerar o rascunho ou pesquisar as fontes. ' +
           'Tente novamente em alguns minutos ou use um tema diferente.'
       });
     }
   }
 
-
-
-  // EstatÃ­sticas: visÃ­veis apenas para administradores do servidor ou usuÃ¡rios com o cargo configurado.
+  // Estatísticas: visíveis apenas para administradores do servidor ou usuários com o cargo configurado.
   if (interaction.commandName === 'estatisticas') {
     const allowedRoleId = process.env.STATS_ROLE_ID;
     const isAdmin = interaction.memberPermissions?.has('Administrator');
     const hasAllowedRole = Boolean(allowedRoleId && interaction.member?.roles?.cache?.has(allowedRoleId));
     if (!isAdmin && !hasAllowedRole) {
-      return interaction.reply({ content: 'ðŸ”’ Este comando Ã© restrito Ã  equipe autorizada.', ephemeral: true });
+      return interaction.reply({ content: '🔒 Este comando é restrito à equipe autorizada.', ephemeral: true });
     }
 
     try {
       const data = await stats.getSummary();
       const t = data.totals;
       const bars = data.commands.length
-        ? data.commands.slice(0, 5).map(item => `**/${item.command_name}** â€” ${item.total} uso(s)`).join('\n')
-        : 'Ainda nÃ£o hÃ¡ comandos registrados.';
+        ? data.commands.slice(0, 5).map(item => `**/${item.command_name}** — ${item.total} uso(s)`).join('\n')
+        : 'Ainda não há comandos registrados.';
       const embed = new EmbedBuilder()
-        .setTitle('ðŸ“Š EstatÃ­sticas do Bot TCC')
-        .setDescription('Indicadores calculados a partir dos eventos registrados desde a ativaÃ§Ã£o das estatÃ­sticas.')
+        .setTitle('📊 Estatísticas do Bot TCC')
+        .setDescription('Indicadores calculados a partir dos eventos registrados desde a ativação das estatísticas.')
         .addFields(
-          { name: 'ðŸ‘¥ UsuÃ¡rios Ãºnicos', value: String(t.unique_users), inline: true },
-          { name: 'ðŸ“… Ativos nas Ãºltimas 24h', value: String(t.active_today), inline: true },
-          { name: 'ðŸ—“ï¸ Ativos em 7 dias', value: String(t.active_week), inline: true },
-          { name: 'ðŸ“ˆ Ativos em 30 dias', value: String(t.active_month), inline: true },
-          { name: 'ðŸ“š TCCs iniciados', value: String(t.tccs_started), inline: true },
-          { name: 'ðŸ“„ Documentos gerados', value: String(t.documents_generated), inline: true },
-          { name: 'âŒ¨ï¸ Comandos mais usados', value: bars, inline: false },
-          { name: 'ðŸŒ Painel web', value: 'Consulte `/admin/tcc-stats` no site quando o servidor web estiver configurado.', inline: false }
+          { name: '👥 Usuários únicos', value: String(t.unique_users), inline: true },
+          { name: '📅 Ativos nas últimas 24h', value: String(t.active_today), inline: true },
+          { name: '🗓️ Ativos em 7 dias', value: String(t.active_week), inline: true },
+          { name: '📈 Ativos em 30 dias', value: String(t.active_month), inline: true },
+          { name: '📚 TCCs iniciados', value: String(t.tccs_started), inline: true },
+          { name: '📄 Documentos gerados', value: String(t.documents_generated), inline: true },
+          { name: '⌨️ Comandos mais usados', value: bars, inline: false },
+          { name: '🌐 Painel web', value: 'Consulte `/admin/tcc-stats` no site quando o servidor web estiver configurado.', inline: false }
         )
         .setColor('#5865F2')
         .setTimestamp();
       return interaction.reply({ embeds: [embed], ephemeral: true });
     } catch (error) {
-      console.error('Erro ao montar estatÃ­sticas:', error.message);
-      return interaction.reply({ content: 'NÃ£o consegui consultar as estatÃ­sticas. Confira se o PostgreSQL estÃ¡ configurado e se o bot jÃ¡ inicializou as tabelas.', ephemeral: true });
+      console.error('Erro ao montar estatísticas:', error.message);
+      return interaction.reply({
+        content: 'Não consegui consultar as estatísticas. Confira se o PostgreSQL está configurado e se o bot já inicializou as tabelas.',
+        ephemeral: true
+      });
     }
   }
 
@@ -421,7 +429,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     const instituicao = new TextInputBuilder()
       .setCustomId('tcc_instituicao')
-      .setLabel('InstituiÃ§Ã£o de ensino')
+      .setLabel('Instituição de ensino')
       .setStyle(TextInputStyle.Short)
       .setMinLength(2)
       .setMaxLength(120)
@@ -437,7 +445,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     const titulo = new TextInputBuilder()
       .setCustomId('tcc_titulo')
-      .setLabel('TÃ­tulo provisÃ³rio do trabalho')
+      .setLabel('Título provisório do trabalho')
       .setStyle(TextInputStyle.Paragraph)
       .setMinLength(5)
       .setMaxLength(250)
@@ -457,7 +465,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.commandName === 'chamada') {
     if (!interaction.inGuild()) {
       return interaction.reply({
-        content: 'âš ï¸ Este comando sÃ³ pode ser usado dentro do servidor.',
+        content: '⚠️ Este comando só pode ser usado dentro do servidor.',
         ephemeral: true
       });
     }
@@ -473,7 +481,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (!isAluno && !isProfessor && !isAdmin) {
         return interaction.reply({
-          content: 'â›” Apenas aluno, professor ou admin podem usar este comando.',
+          content: '⛔ Apenas aluno, professor ou admin podem usar este comando.',
           ephemeral: true
         });
       }
@@ -490,8 +498,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     );
 
     const embed = new EmbedBuilder()
-      .setTitle('ðŸ“‹ Sistema de Chamada')
-      .setDescription('Clique no botÃ£o abaixo para entrar no sistema atual de chamadas.')
+      .setTitle('📋 Sistema de Chamada')
+      .setDescription('Clique no botão abaixo para entrar no sistema atual de chamadas.')
       .setColor('#5865F2')
       .setFooter({ text: 'Mercury Class' })
       .setTimestamp();
@@ -508,10 +516,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const username = interaction.user.username;
     const guildId = interaction.guild.id;
 
-    // ðŸš« COOLDOWN (5s)
+    // 🚫 COOLDOWN (5s)
     if (cooldown.has(userId)) {
       return interaction.reply({
-        content: 'â³ Aguarde alguns segundos antes de tentar novamente.',
+        content: '⏳ Aguarde alguns segundos antes de tentar novamente.',
         ephemeral: true
       });
     }
@@ -520,7 +528,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     setTimeout(() => cooldown.delete(userId), 5000);
 
     try {
-      // ðŸ” verifica se jÃ¡ marcou hoje no Discord
+      // 🔍 verifica se já marcou hoje no Discord
       const hoje = new Date().toISOString().split('T')[0];
       const check = await db.query(
         `SELECT 1 FROM presencas
@@ -532,22 +540,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       if (check.rows.length > 0) {
         return interaction.reply({
-          content: 'âš ï¸ VocÃª jÃ¡ marcou presenÃ§a hoje!',
+          content: '⚠️ Você já marcou presença hoje!',
           ephemeral: true
         });
       }
 
-      // ðŸ’¾ busca mapeamento para nome real
+      // 💾 busca mapeamento para nome real
       const mappingRes = await db.query(
         `SELECT real_name FROM discord_mappings WHERE LOWER(discord_username) = LOWER($1)`,
         [username]
       );
 
-      // CASO A: Aluno NÃƒO estÃ¡ vinculado ainda -> Exibe o MODAL do Discord
+      // CASO A: Aluno NÃO está vinculado ainda -> Exibe o MODAL do Discord
       if (mappingRes.rowCount === 0) {
         const modal = new ModalBuilder()
           .setCustomId('vincular_modal')
-          .setTitle('ðŸ‘¾ Vincular Conta | Mercury Class');
+          .setTitle('👾 Vincular Conta | Mercury Class');
 
         const realNameInput = new TextInputBuilder()
           .setCustomId('real_name_input')
@@ -565,10 +573,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
       }
 
-      // CASO B: Aluno jÃ¡ vinculado
+      // CASO B: Aluno já vinculado
       const mappedName = mappingRes.rows[0].real_name;
 
-      // Busca todas as sessÃµes de aula ativas
+      // Busca todas as sessões de aula ativas
       const activeSessions = await db.query(
         `SELECT cs.id, cs.class_id, c.name AS class_name
          FROM class_sessions cs
@@ -591,96 +599,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const totalPresencas = total.rows[0].total;
 
         const embed = new EmbedBuilder()
-          .setTitle('âœ… PresenÃ§a Registrada')
-          .setDescription(`OlÃ¡, **${mappedName}**!\nSua presenÃ§a geral no Discord foi confirmada (nenhuma aula ativa no momento).`)
+          .setTitle('✅ Presença Registrada')
+          .setDescription(`Olá, **${mappedName}**!\nSua presença geral no Discord foi confirmada (nenhuma aula ativa no momento).`)
           .addFields(
-            { name: 'ðŸ“… Hoje', value: 'Confirmada', inline: true },
-            { name: 'ðŸ“Š Total', value: String(totalPresencas), inline: true }
-          )
-          .setColor('#5865F2')
-          .setFooter({ text: 'Mercury Class' })
-          .setTimestamp();
-
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      // Sub-Caso 2: Exatamente uma aula ativa -> registra presenÃ§a automaticamente
-      if (activeSessions.rowCount === 1) {
-        const sessionId = activeSessions.rows[0].id;
-        const classId = activeSessions.rows[0].class_id;
-        const className = activeSessions.rows[0].class_name;
-
-        // Registra presenÃ§a na chamada oficial
-        const checkAtt = await db.query(
-          `SELECT 1 FROM attendances WHERE class_session_id = $1 AND student_name = $2`,
-          [sessionId, mappedName]
-        );
-        if (checkAtt.rowCount === 0) {
-          await db.query(
-            `INSERT INTO attendances (class_session_id, class_id, student_name, login_at, student_id) VALUES ($1, $2, $3, NOW(), $4)`,
-            [sessionId, classId, mappedName, userId]
-          );
-        }
-
-        // ðŸ’¾ salva presenÃ§a geral na tabela Discord
-        await db.query(
-          `INSERT INTO presencas (user_id, username, guild_id, data) VALUES ($1, $2, $3, NOW())`,
-          [userId, username, guildId]
-        );
-
-        const total = await db.query(
-          `SELECT COUNT(*) as total FROM presencas WHERE user_id = $1 AND guild_id = $2`,
-          [userId, guildId]
-        );
-        const totalPresencas = total.rows[0].total;
-
-        const embed = new EmbedBuilder()
-          .setTitle('âœ… PresenÃ§a Registrada')
-          .setDescription(`OlÃ¡, **${mappedName}**!\nðŸ“– **Chamada Escolar:** PresenÃ§a confirmada na aula ativa de **${className}**!`)
-          .addFields(
-            { name: 'ðŸ“… MatÃ©ria', value: className, inline: true },
-            { name: 'ðŸ“Š Total', value: String(totalPresencas), inline: true }
-          )
-          .setColor('#5865F2')
-          .setFooter({ text: 'Mercury Class' })
-          .setTimestamp();
-
-        return interaction.reply({ embeds: [embed] });
-      }
-
-      // Sub-Caso 3: MÃºltiplas aulas ativas -> gera botÃµes interativos para escolha
-      const embed = new EmbedBuilder()
-        .setTitle('ðŸ« Escolha sua Aula')
-        .setDescription(`OlÃ¡, **${mappedName}**!\nIdentificamos mais de uma aula ativa no momento. Clique no botÃ£o correspondente para registrar sua presenÃ§a:`)
-        .setColor('#5865F2')
-        .setFooter({ text: 'Mercury Class' })
-        .setTimestamp();
-
-      const row = new ActionRowBuilder();
-      activeSessions.rows.forEach(session => {
-        const emoji = getEmojiForClass(session.class_name);
-        row.addComponents(
-          new ButtonBuilder()
-            .setCustomId(`presenca_aula_${session.id}_${session.class_id}`)
-            .setLabel(`${emoji} ${session.class_name}`)
-            .setStyle(ButtonStyle.Primary)
-        );
-      });
-
-      return interaction.reply({
-        embeds: [embed],
-        components: [row],
-        ephemeral: true
-      });
-
-    } catch (error) {
-      console.error(error);
-      interaction.reply({
-        content: 'âŒ Erro ao registrar presenÃ§a.',
-        ephemeral: true
-      });
-    }
-  }
-});
-
-client.login(BOT_TOKEN);
+            { name: '📅 Hoje', value: '
