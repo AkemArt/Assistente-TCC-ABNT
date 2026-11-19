@@ -141,65 +141,77 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // 1. Modal Submit Handler
   if (interaction.isModalSubmit()) {
     if (interaction.customId === 'iniciar_tcc_modal') {
-      const nomeAluno = interaction.fields.getTextInputValue('tcc_aluno').trim();
-      const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
-      const instituicao = interaction.fields.getTextInputValue('tcc_instituicao').trim();
-      const curso = interaction.fields.getTextInputValue('tcc_curso').trim();
-      const titulo = interaction.fields.getTextInputValue('tcc_titulo').trim();
+  const nomeAluno = interaction.fields.getTextInputValue('tcc_aluno').trim();
+  const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
+  const instituicao = interaction.fields.getTextInputValue('tcc_instituicao').trim();
+  const curso = interaction.fields.getTextInputValue('tcc_curso').trim();
+  const titulo = interaction.fields.getTextInputValue('tcc_titulo').trim();
 
-      await interaction.deferReply({ ephemeral: true });
-      try {
-        const project = {
-          userId: interaction.user.id,
-          username: interaction.user.username,
-          guildId: interaction.guildId,
-          studentName: nomeAluno,
-          advisorName: orientador,
-          institution: instituicao,
-          course: curso,
-          title: titulo
-        };
-        const saved = await tccProjects.saveProject(project);
-        const documentBuffer = await tccProjects.generateTccDocx(project);
+  await interaction.deferReply({ ephemeral: true });
+  const totalLabel = `iniciar_tcc_${interaction.user.id}_${Date.now()}`;
+  console.time(totalLabel);
 
-        await stats.recordEvent({
-          userId: interaction.user.id,
-          username: interaction.user.username,
-          guildId: interaction.guildId,
-          eventType: 'tcc_started'
-        });
-        await stats.recordEvent({
-          userId: interaction.user.id,
-          username: interaction.user.username,
-          guildId: interaction.guildId,
-          eventType: 'document_generated'
-        });
+  try {
+    const project = {
+      userId: interaction.user.id,
+      username: interaction.user.username,
+      guildId: interaction.guildId,
+      studentName: nomeAluno,
+      advisorName: orientador,
+      institution: instituicao,
+      course: curso,
+      title: titulo
+    };
 
-        const resumo = new EmbedBuilder()
-          .setTitle('📚 Projeto de TCC salvo e documento criado')
-          .setDescription(`Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) e gerei um modelo Word inicial para você revisar. Ele contém capa, folha de rosto e seções estruturais; ainda não é um TCC pesquisado ou concluído.`)
-          .addFields(
-            { name: 'Aluno(a)', value: nomeAluno, inline: false },
-            { name: 'Orientador(a)', value: orientador, inline: false },
-            { name: 'Instituição', value: instituicao, inline: true },
-            { name: 'Curso', value: curso, inline: true },
-            { name: 'Título provisório', value: titulo, inline: false }
-          )
-          .setColor('#5865F2')
-          .setFooter({ text: 'Assistente de TCC • Modelo inicial para revisão' });
+    console.time(`${totalLabel}_db_e_docx`);
+    const [saved, documentBuffer] = await Promise.all([
+      tccProjects.saveProject(project),
+      tccProjects.generateTccDocx(project)
+    ]);
+    console.timeEnd(`${totalLabel}_db_e_docx`);
 
-        return interaction.editReply({
-          embeds: [resumo],
-          files: [{ attachment: documentBuffer, name: `TCC_modelo_${saved.id}.docx` }]
-        });
-      } catch (error) {
-        console.error('❌ Falha ao salvar projeto/gerar documento:', error);
-        return interaction.editReply({
-          content: '❌ Não consegui salvar o projeto ou gerar o Word. Confira se o bot foi reiniciado após a atualização e se a tabela de projetos foi criada no PostgreSQL. Consulte o terminal para ver o erro.'
-        });
-      }
-    }
+    // Dispara estatísticas em paralelo sem segurar a entrega do arquivo ao usuário
+    Promise.all([
+      stats.recordEvent({
+        userId: interaction.user.id,
+        username: interaction.user.username,
+        guildId: interaction.guildId,
+        eventType: 'tcc_started'
+      }),
+      stats.recordEvent({
+        userId: interaction.user.id,
+        username: interaction.user.username,
+        guildId: interaction.guildId,
+        eventType: 'document_generated'
+      })
+    ]).catch(err => console.error('⚠️ Falha ao registrar stats do TCC:', err.message));
 
+    const resumo = new EmbedBuilder()
+      .setTitle('📚 Projeto de TCC salvo e documento criado')
+      .setDescription(`Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) e gerei um modelo Word inicial para você revisar. Ele contém capa, folha de rosto e seções estruturais; ainda não é um TCC pesquisado ou concluído.`)
+      .addFields(
+        { name: 'Aluno(a)', value: nomeAluno, inline: false },
+        { name: 'Orientador(a)', value: orientador, inline: false },
+        { name: 'Instituição', value: instituicao, inline: true },
+        { name: 'Curso', value: curso, inline: true },
+        { name: 'Título provisório', value: titulo, inline: false }
+      )
+      .setColor('#5865F2')
+      .setFooter({ text: 'Assistente de TCC • Modelo inicial para revisão' });
+
+    console.timeEnd(totalLabel);
+    return interaction.editReply({
+      embeds: [resumo],
+      files: [{ attachment: documentBuffer, name: `TCC_modelo_${saved.id}.docx` }]
+    });
+  } catch (error) {
+    console.timeEnd(totalLabel);
+    console.error('❌ Falha ao salvar projeto/gerar documento:', error);
+    return interaction.editReply({
+      content: '❌ Não consegui salvar o projeto ou gerar o Word. Confira se o bot foi reiniciado após a atualização e se a tabela de projetos foi criada no PostgreSQL. Consulte o terminal para ver o erro.'
+    });
+  }
+}
     if (interaction.customId === 'vincular_modal') {
       const realName = interaction.fields.getTextInputValue('real_name_input').trim();
       const username = interaction.user.username.toLowerCase();
