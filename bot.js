@@ -83,7 +83,7 @@ function getSlashCommands() {
 
     new SlashCommandBuilder()
       .setName('iniciar_tcc')
-      .setDescription('Iniciar um novo projeto de TCC'),
+      .setDescription('Iniciar um novo projeto de TCC (Word + PowerPoint)'),
 
     new SlashCommandBuilder()
       .setName('estatisticas')
@@ -237,10 +237,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (interaction.customId === 'iniciar_tcc_modal') {
       const nomeAluno = interaction.fields.getTextInputValue('tcc_aluno').trim();
+      const cursoInstituicao = interaction.fields.getTextInputValue('tcc_curso_instituicao').trim();
       const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
-      const instituicao = interaction.fields.getTextInputValue('tcc_instituicao').trim();
-      const curso = interaction.fields.getTextInputValue('tcc_curso').trim();
       const titulo = interaction.fields.getTextInputValue('tcc_titulo').trim();
+      const folhasInput = interaction.fields.getTextInputValue('tcc_folhas').trim();
 
       const totalLabel = `iniciar_tcc_${interaction.user.id}_${Date.now()}`;
       console.time(totalLabel);
@@ -258,25 +258,33 @@ client.on(Events.InteractionCreate, async interaction => {
           guildId: interaction.guildId,
           studentName: nomeAluno,
           advisorName: orientador,
-          institution: instituicao,
-          course: curso,
-          title: titulo
+          institution: cursoInstituicao,
+          course: cursoInstituicao,
+          courseAndInstitution: cursoInstituicao,
+          title: titulo,
+          pageCount: folhasInput,
+          focusNote: folhasInput
         };
 
-        console.time(`${totalLabel}_db_e_docx`);
-        const [saved, documentBuffer] = await Promise.all([
+        console.time(`${totalLabel}_db_docx_pptx`);
+        const [saved, docxBuffer, pptxBuffer] = await Promise.all([
           tccProjects.saveProject(project),
-          tccProjects.generateTccDocx(project)
+          tccProjects.generateTccDocx(project),
+          tccProjects.generateTccPptx(project)
         ]);
-        console.timeEnd(`${totalLabel}_db_e_docx`);
+        console.timeEnd(`${totalLabel}_db_docx_pptx`);
 
-        const rawBuffer = Buffer.isBuffer(documentBuffer)
-          ? documentBuffer
-          : Buffer.from(documentBuffer);
+        const rawDocx = Buffer.isBuffer(docxBuffer)
+          ? docxBuffer
+          : Buffer.from(docxBuffer);
+
+        const rawPptx = Buffer.isBuffer(pptxBuffer)
+          ? pptxBuffer
+          : Buffer.from(pptxBuffer);
 
         console.log(
           `📦 [${totalLabel}] Projeto salvo: ${saved.id}. ` +
-          `Documento gerado: ${rawBuffer.length} bytes.`
+          `DOCX: ${rawDocx.length} bytes | PPTX: ${rawPptx.length} bytes.`
         );
 
         Promise.allSettled([
@@ -297,28 +305,27 @@ client.on(Events.InteractionCreate, async interaction => {
         });
 
         const resumo = new EmbedBuilder()
-          .setTitle('📚 Projeto de TCC salvo e documento criado')
+          .setTitle('📚 Projeto de TCC salvo, Word ABNT e PowerPoint criados')
           .setDescription(
             `Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) ` +
-            'e gerei um modelo Word inicial estruturado para você revisar. ' +
-            'Ele contém capa, folha de rosto e seções iniciais; ' +
-            'revise com seu orientador e adicione o desenvolvimento e as referências definitivas.'
+            'com estrutura ABNT (capa, folha de rosto, problema, solução, citações, conclusão e referências) ' +
+            'e apresentação em PowerPoint temática prontos para revisão.'
           )
           .addFields(
             { name: 'Aluno(a)', value: nomeAluno, inline: false },
-            { name: 'Orientador(a)', value: orientador, inline: false },
-            { name: 'Instituição', value: instituicao, inline: true },
-            { name: 'Curso', value: curso, inline: true },
-            { name: 'Título provisório', value: titulo, inline: false }
+            { name: 'Curso e Instituição', value: cursoInstituicao, inline: false },
+            { name: 'Orientador(a)', value: orientador, inline: true },
+            { name: 'Folhas / Foco', value: folhasInput || '10 folhas', inline: true },
+            { name: 'Título / Tema', value: titulo, inline: false }
           )
           .setColor('#5865F2')
           .setFooter({
-            text: 'Assistente de TCC • Modelo inicial para revisão'
+            text: 'Assistente de TCC • Revise com seu orientador antes da entrega'
           });
 
         await withTimeout(
           interaction.editReply({
-            content: '✅ Projeto salvo! Enviando o arquivo Word (.docx)...',
+            content: '✅ Projeto salvo! Enviando o Word (.docx) e o PowerPoint (.pptx)...',
             embeds: [resumo]
           }),
           15000,
@@ -326,23 +333,27 @@ client.on(Events.InteractionCreate, async interaction => {
         );
 
         const envioStart = Date.now();
-        console.log(`📤 [${totalLabel}] Enviando arquivo Word via followUp...`);
+        console.log(`📤 [${totalLabel}] Enviando arquivos Word e PowerPoint via followUp...`);
 
-        const arquivoWord = new AttachmentBuilder(rawBuffer, {
-          name: `TCC_modelo_${saved.id}.docx`
+        const arquivoWord = new AttachmentBuilder(rawDocx, {
+          name: `TCC_ABNT_projeto_${saved.id}.docx`
+        });
+
+        const arquivoPptx = new AttachmentBuilder(rawPptx, {
+          name: `Apresentacao_TCC_projeto_${saved.id}.pptx`
         });
 
         await withTimeout(
           interaction.followUp({
-            content: `📄 Modelo inicial de TCC do projeto nº ${saved.id} (${nomeAluno}):`,
-            files: [arquivoWord]
+            content: `📄 Arquivos do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e Apresentação PowerPoint:`,
+            files: [arquivoWord, arquivoPptx]
           }),
           20000,
-          `${totalLabel}_followUp_docx`
+          `${totalLabel}_followUp_arquivos`
         );
 
         console.log(
-          `✅ [${totalLabel}] Arquivo Word enviado em ${Date.now() - envioStart}ms.`
+          `✅ [${totalLabel}] Arquivos Word e PowerPoint enviados em ${Date.now() - envioStart}ms.`
         );
 
         console.timeEnd(totalLabel);
@@ -359,7 +370,7 @@ client.on(Events.InteractionCreate, async interaction => {
           if (interaction.deferred || interaction.replied) {
             await interaction.editReply({
               content:
-                '❌ Não consegui concluir a criação do projeto ou o envio do Word. ' +
+                '❌ Não consegui concluir a criação do projeto ou o envio dos arquivos. ' +
                 'Confira os Logs do Render para ver o detalhe.',
               embeds: [],
               files: []
@@ -661,25 +672,17 @@ client.on(Events.InteractionCreate, async interaction => {
       .setMaxLength(100)
       .setRequired(true);
 
+    const cursoInstituicao = new TextInputBuilder()
+      .setCustomId('tcc_curso_instituicao')
+      .setLabel('Curso e Instituição (ex.: ADS - MODULO)')
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(3)
+      .setMaxLength(150)
+      .setRequired(true);
+
     const orientador = new TextInputBuilder()
       .setCustomId('tcc_orientador')
       .setLabel('Nome do professor orientador')
-      .setStyle(TextInputStyle.Short)
-      .setMinLength(3)
-      .setMaxLength(100)
-      .setRequired(true);
-
-    const instituicao = new TextInputBuilder()
-      .setCustomId('tcc_instituicao')
-      .setLabel('Instituição de ensino')
-      .setStyle(TextInputStyle.Short)
-      .setMinLength(2)
-      .setMaxLength(120)
-      .setRequired(true);
-
-    const curso = new TextInputBuilder()
-      .setCustomId('tcc_curso')
-      .setLabel('Curso')
       .setStyle(TextInputStyle.Short)
       .setMinLength(2)
       .setMaxLength(100)
@@ -687,18 +690,27 @@ client.on(Events.InteractionCreate, async interaction => {
 
     const titulo = new TextInputBuilder()
       .setCustomId('tcc_titulo')
-      .setLabel('Título provisório do trabalho')
+      .setLabel('Título ou tema do trabalho')
       .setStyle(TextInputStyle.Paragraph)
-      .setMinLength(5)
+      .setMinLength(3)
       .setMaxLength(250)
       .setRequired(true);
 
+    const folhas = new TextInputBuilder()
+      .setCustomId('tcc_folhas')
+      .setLabel('Qtd. de folhas desejada (ex.: 10, 20)')
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(1)
+      .setMaxLength(80)
+      .setRequired(true)
+      .setPlaceholder('Ex.: 10 ou 20');
+
     modal.addComponents(
       new ActionRowBuilder().addComponents(aluno),
+      new ActionRowBuilder().addComponents(cursoInstituicao),
       new ActionRowBuilder().addComponents(orientador),
-      new ActionRowBuilder().addComponents(instituicao),
-      new ActionRowBuilder().addComponents(curso),
-      new ActionRowBuilder().addComponents(titulo)
+      new ActionRowBuilder().addComponents(titulo),
+      new ActionRowBuilder().addComponents(folhas)
     );
 
     return interaction.showModal(modal);
