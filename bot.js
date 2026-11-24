@@ -10,6 +10,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -68,6 +69,28 @@ function withTimeout(promise, ms, label) {
   });
 }
 
+function buildKeepConnectedMenu(currentValue = true) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('auth_keep_connected_select')
+    .setPlaceholder('Escolha uma opção: Sim ou Não')
+    .addOptions(
+      {
+        label: 'Sim — Manter conectado',
+        description: 'Mantém a sessão ativa automaticamente nos próximos acessos',
+        value: 'sim',
+        default: Boolean(currentValue)
+      },
+      {
+        label: 'Não — Não manter conectado',
+        description: 'Sessão sem persistência automática após sair',
+        value: 'nao',
+        default: !currentValue
+      }
+    );
+
+  return new ActionRowBuilder().addComponents(select);
+}
+
 // ======================================================
 // COMANDOS SLASH
 // ======================================================
@@ -76,11 +99,11 @@ function getSlashCommands() {
   return [
     new SlashCommandBuilder()
       .setName('cadastrar')
-      .setDescription('Criar conta para usar os comandos de TCC'),
+      .setDescription('Criar conta com e-mail e senha para usar o bot'),
 
     new SlashCommandBuilder()
       .setName('login')
-      .setDescription('Entrar na sua conta do bot de TCC'),
+      .setDescription('Entrar na sua conta com e-mail e senha'),
 
     new SlashCommandBuilder()
       .setName('logout')
@@ -88,17 +111,11 @@ function getSlashCommands() {
 
     new SlashCommandBuilder()
       .setName('manter_conectado')
-      .setDescription('Ativar ou desativar o modo manter conectado')
-      .addBooleanOption(option =>
-        option
-          .setName('ativar')
-          .setDescription('Escolha true para manter conectado ou false para desativar')
-          .setRequired(true)
-      ),
+      .setDescription('Escolher por múltipla escolha (Sim/Não) se deseja manter conectado'),
 
     new SlashCommandBuilder()
       .setName('usuarios_tcc')
-      .setDescription('Consultar utilizadores cadastrados e sessões (restrito ao administrador)'),
+      .setDescription('Consultar utilizadores registados e sessões (restrito ao administrador)'),
 
     new SlashCommandBuilder()
       .setName('presenca')
@@ -175,7 +192,7 @@ async function ensureAuthenticated(interaction) {
     const msg =
       status.reason === 'not_registered'
         ? '🔒 Para usar este comando, faça primeiro o seu registo com `/cadastrar`.'
-        : '🔒 A sua sessão expirou ou foi encerrada. Faça `/login` para continuar.';
+        : '🔒 A sua sessão foi encerrada. Faça `/login` para continuar.';
 
     if (interaction.deferred || interaction.replied) {
       await interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -291,27 +308,71 @@ function getEmojiForClass(className) {
 client.on(Events.InteractionCreate, async interaction => {
 
   // ====================================================
-  // 1. ENVIO DE FORMULÁRIOS (MODALS)
+  // 1. MENUS DE MÚLTIPLA ESCOLHA (SELECT MENUS)
+  // ====================================================
+
+  if (interaction.isStringSelectMenu()) {
+    if (interaction.customId === 'auth_keep_connected_select') {
+      const selectedValue = interaction.values[0];
+      const enabled = selectedValue === 'sim';
+
+      try {
+        const updated = await auth.setKeepConnected(interaction.user.id, enabled);
+        if (!updated) {
+          return interaction.reply({
+            content: '⚠️ Ainda não tem conta registada. Use `/cadastrar` primeiro.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        return interaction.update({
+          content:
+            `⚙️ Preferência guardada para **${updated.email}**: ` +
+            `manter conectado = **${updated.keep_connected ? 'Sim' : 'Não'}**.`,
+          components: []
+        });
+      } catch (error) {
+        console.error('❌ Erro ao guardar escolha de manter conectado:', describeError(error));
+        return interaction.reply({
+          content: '❌ Não foi possível guardar a sua escolha agora.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+    }
+
+    return;
+  }
+
+  // ====================================================
+  // 2. ENVIO DE FORMULÁRIOS (MODALS)
   // ====================================================
 
   if (interaction.isModalSubmit()) {
 
     if (interaction.customId === 'cadastrar_modal') {
-      const loginUserInput = interaction.fields.getTextInputValue('auth_login_user').trim();
+      const emailInput = interaction.fields.getTextInputValue('auth_email').trim();
       const passwordInput = interaction.fields.getTextInputValue('auth_password').trim();
-      const keepConnectedInput = interaction.fields.getTextInputValue('auth_keep_connected').trim();
 
       try {
         const result = await auth.registerUser({
           discordUserId: interaction.user.id,
           discordUsername: interaction.user.username,
-          loginUser: loginUserInput,
-          password: passwordInput,
-          keepConnectedInput
+          email: emailInput,
+          password: passwordInput
         });
 
+        if (!result.ok) {
+          return interaction.reply({
+            content: `⚠️ ${result.message}`,
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
         return interaction.reply({
-          content: result.ok ? `✅ ${result.message}` : `⚠️ ${result.message}`,
+          content:
+            `✅ ${result.message}\n` +
+            'Deseja manter conectado nas próximas vezes? Escolha uma opção abaixo:',
+          components: [buildKeepConnectedMenu(true)],
           flags: MessageFlags.Ephemeral
         });
       } catch (error) {
@@ -324,21 +385,32 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 
     if (interaction.customId === 'login_modal') {
-      const loginUserInput = interaction.fields.getTextInputValue('auth_login_user').trim();
+      const emailInput = interaction.fields.getTextInputValue('auth_email').trim();
       const passwordInput = interaction.fields.getTextInputValue('auth_password').trim();
-      const keepConnectedInput = interaction.fields.getTextInputValue('auth_keep_connected').trim();
 
       try {
         const result = await auth.loginUser({
           discordUserId: interaction.user.id,
           discordUsername: interaction.user.username,
-          loginUser: loginUserInput,
-          password: passwordInput,
-          keepConnectedInput
+          email: emailInput,
+          password: passwordInput
         });
 
+        if (!result.ok) {
+          return interaction.reply({
+            content: `⚠️ ${result.message}`,
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const saved = await auth.getSavedLogin(interaction.user.id).catch(() => null);
+        const currentKeep = saved?.keep_connected !== false;
+
         return interaction.reply({
-          content: result.ok ? `✅ ${result.message}` : `⚠️ ${result.message}`,
+          content:
+            `✅ ${result.message}\n` +
+            'Deseja manter conectado? Escolha uma opção abaixo:',
+          components: [buildKeepConnectedMenu(currentKeep)],
           flags: MessageFlags.Ephemeral
         });
       } catch (error) {
@@ -567,7 +639,7 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   // ====================================================
-  // 2. BOTÕES DE PRESENÇA
+  // 3. BOTÕES DE PRESENÇA
   // ====================================================
 
   if (interaction.isButton()) {
@@ -676,7 +748,7 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   // ====================================================
-  // 3. COMANDOS SLASH
+  // 4. COMANDOS SLASH
   // ====================================================
 
   if (!interaction.isChatInputCommand()) return;
@@ -696,35 +768,26 @@ client.on(Events.InteractionCreate, async interaction => {
       .setCustomId('cadastrar_modal')
       .setTitle('Registo • Assistente TCC');
 
-    const loginInput = new TextInputBuilder()
-      .setCustomId('auth_login_user')
-      .setLabel('Escolha um nome de utilizador para login')
+    const emailInput = new TextInputBuilder()
+      .setCustomId('auth_email')
+      .setLabel('O seu e-mail')
       .setStyle(TextInputStyle.Short)
-      .setMinLength(3)
-      .setMaxLength(80)
-      .setRequired(true);
+      .setMinLength(5)
+      .setMaxLength(160)
+      .setRequired(true)
+      .setPlaceholder('exemplo@email.com');
 
     const passwordInput = new TextInputBuilder()
       .setCustomId('auth_password')
-      .setLabel('Crie uma senha (mínimo 4 caracteres)')
+      .setLabel('Crie uma palavra-passe / senha (mín. 4)')
       .setStyle(TextInputStyle.Short)
       .setMinLength(4)
       .setMaxLength(100)
       .setRequired(true);
 
-    const keepInput = new TextInputBuilder()
-      .setCustomId('auth_keep_connected')
-      .setLabel('Manter conectado? (sim ou nao)')
-      .setStyle(TextInputStyle.Short)
-      .setMinLength(1)
-      .setMaxLength(10)
-      .setRequired(false)
-      .setValue('sim');
-
     modal.addComponents(
-      new ActionRowBuilder().addComponents(loginInput),
-      new ActionRowBuilder().addComponents(passwordInput),
-      new ActionRowBuilder().addComponents(keepInput)
+      new ActionRowBuilder().addComponents(emailInput),
+      new ActionRowBuilder().addComponents(passwordInput)
     );
 
     return interaction.showModal(modal);
@@ -732,46 +795,35 @@ client.on(Events.InteractionCreate, async interaction => {
 
   if (interaction.commandName === 'login') {
     const saved = await auth.getSavedLogin(interaction.user.id).catch(() => null);
-    const defaultLogin = saved?.saved_login_user || saved?.login_user || '';
-    const defaultKeep = saved?.keep_connected === false ? 'nao' : 'sim';
+    const defaultEmail = saved?.saved_email || saved?.email || '';
 
     const modal = new ModalBuilder()
       .setCustomId('login_modal')
       .setTitle('Login • Assistente TCC');
 
-    const loginInput = new TextInputBuilder()
-      .setCustomId('auth_login_user')
-      .setLabel('Nome de utilizador')
+    const emailInput = new TextInputBuilder()
+      .setCustomId('auth_email')
+      .setLabel('O seu e-mail')
       .setStyle(TextInputStyle.Short)
-      .setMinLength(3)
-      .setMaxLength(80)
+      .setMinLength(5)
+      .setMaxLength(160)
       .setRequired(true);
 
-    if (defaultLogin) {
-      loginInput.setValue(defaultLogin);
+    if (defaultEmail) {
+      emailInput.setValue(defaultEmail);
     }
 
     const passwordInput = new TextInputBuilder()
       .setCustomId('auth_password')
-      .setLabel('A sua senha')
+      .setLabel('A sua palavra-passe / senha')
       .setStyle(TextInputStyle.Short)
       .setMinLength(4)
       .setMaxLength(100)
       .setRequired(true);
 
-    const keepInput = new TextInputBuilder()
-      .setCustomId('auth_keep_connected')
-      .setLabel('Manter conectado? (sim ou nao)')
-      .setStyle(TextInputStyle.Short)
-      .setMinLength(1)
-      .setMaxLength(10)
-      .setRequired(false)
-      .setValue(defaultKeep);
-
     modal.addComponents(
-      new ActionRowBuilder().addComponents(loginInput),
-      new ActionRowBuilder().addComponents(passwordInput),
-      new ActionRowBuilder().addComponents(keepInput)
+      new ActionRowBuilder().addComponents(emailInput),
+      new ActionRowBuilder().addComponents(passwordInput)
     );
 
     return interaction.showModal(modal);
@@ -794,10 +846,9 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (interaction.commandName === 'manter_conectado') {
-    const ativar = interaction.options.getBoolean('ativar', true);
     try {
-      const updated = await auth.setKeepConnected(interaction.user.id, ativar);
-      if (!updated) {
+      const saved = await auth.getSavedLogin(interaction.user.id);
+      if (!saved) {
         return interaction.reply({
           content: '⚠️ Ainda não tem conta registada. Use `/cadastrar` primeiro.',
           flags: MessageFlags.Ephemeral
@@ -806,14 +857,14 @@ client.on(Events.InteractionCreate, async interaction => {
 
       return interaction.reply({
         content:
-          `⚙️ Modo manter conectado **${updated.keep_connected ? 'ATIVADO' : 'DESATIVADO'}** ` +
-          `para o utilizador **${updated.login_user}**.`,
+          `⚙️ Conta **${saved.email}** — escolha se deseja manter conectado:`,
+        components: [buildKeepConnectedMenu(saved.keep_connected)],
         flags: MessageFlags.Ephemeral
       });
     } catch (error) {
       console.error('❌ Erro no /manter_conectado:', describeError(error));
       return interaction.reply({
-        content: '❌ Não foi possível atualizar a preferência.',
+        content: '❌ Não foi possível carregar a opção de manter conectado.',
         flags: MessageFlags.Ephemeral
       });
     }
@@ -839,10 +890,10 @@ client.on(Events.InteractionCreate, async interaction => {
       const linhas = users.slice(0, 20).map((u, idx) => {
         const estado = u.is_logged_in ? '🟢 Online' : '⚪ Offline';
         const manter = u.keep_connected ? 'Sim' : 'Não';
-        const salvo = u.saved_login_user || u.login_user;
+        const salvo = u.saved_email || u.email;
         return (
-          `${idx + 1}. **${u.login_user}** (@${u.discord_username} • ID: \`${u.discord_user_id}\`)\n` +
-          `   Estado: ${estado} | Login salvo: \`${salvo}\` | Manter conectado: **${manter}**`
+          `${idx + 1}. **${u.email}** (@${u.discord_username} • ID: \`${u.discord_user_id}\`)\n` +
+          `   Estado: ${estado} | E-mail salvo: \`${salvo}\` | Manter conectado: **${manter}**`
         );
       });
 
