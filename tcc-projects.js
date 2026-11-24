@@ -104,16 +104,16 @@ function sectionHeading(title) {
 
 async function generateTccDocx(project) {
   const currentYear = new Date().getFullYear();
-  const institution = String(project.institution || '').toUpperCase();
-  const studentName = String(project.studentName || '').toUpperCase();
-  const title = String(project.title || '').toUpperCase();
-  const course = String(project.course || '');
-  const advisorName = String(project.advisorName || '');
+  const institution = String(project.institution || '').trim().toUpperCase();
+  const studentName = String(project.studentName || '').trim().toUpperCase();
+  const title = String(project.title || '').trim().toUpperCase();
+  const course = String(project.course || '').trim();
+  const advisorName = String(project.advisorName || '').trim();
 
   const doc = new Document({
     creator: 'Assistente TCC ABNT',
     title: project.title,
-    description: 'Documento inicial de TCC para revisão do estudante.',
+    description: 'Modelo inicial de TCC estruturado conforme orientações ABNT para revisão.',
     styles: {
       default: {
         document: {
@@ -126,55 +126,59 @@ async function generateTccDocx(project) {
       {
         properties: {
           page: {
-            // Margens ABNT: superior e esquerda 3 cm (~1701 twips); inferior e direita 2 cm (~1134 twips)
+            // Margens ABNT: superior e esquerda 3 cm (1701 twips); inferior e direita 2 cm (1134 twips)
             margin: { top: 1701, right: 1134, bottom: 1134, left: 1701 }
           }
         },
         children: [
-          // CAPA
-          centered(institution, { bold: true, after: 1200 }),
-          centered(studentName, { after: 1800 }),
-          centered(title, { bold: true, after: 2400 }),
-          centered('Caraguatatuba', { after: 120 }),
-          centered(String(currentYear)),
+          // 1. CAPA
+          centered(institution, { bold: true, after: 1400 }),
+          centered(studentName, { bold: true, after: 1800 }),
+          centered(title, { bold: true, after: 2200 }),
+          centered('Caraguatatuba', { bold: true, after: 120 }),
+          centered(String(currentYear), { bold: true }),
 
           new Paragraph({ children: [new PageBreak()] }),
 
-          // FOLHA DE ROSTO
-          centered(studentName, { after: 1400 }),
+          // 2. FOLHA DE ROSTO
+          centered(studentName, { after: 1200 }),
           centered(title, { bold: true, after: 1400 }),
           natureBlock(
             `Trabalho de Conclusão de Curso apresentado ao curso de ${course}, da instituição ${institution}, como requisito parcial para obtenção de título/conclusão do curso.`,
             { after: 240 }
           ),
-          natureBlock(`Orientador(a): ${advisorName}`, { after: 1800 }),
+          natureBlock(`Orientador(a): ${advisorName}`, { after: 2000 }),
           centered('Caraguatatuba', { after: 120 }),
           centered(String(currentYear)),
 
           new Paragraph({ children: [new PageBreak()] }),
 
-          // ELEMENTOS TEXTUAIS INICIAIS
+          // 3. ELEMENTOS TEXTUAIS (MODELO INICIAL PARA REVISÃO)
           sectionHeading('1 INTRODUÇÃO'),
           body(
-            'Apresente aqui a contextualização do tema, o problema de pesquisa, a justificativa e os objetivos do trabalho. Este documento é um modelo inicial e não contém conteúdo acadêmico pesquisado ou validado.'
+            'Apresente aqui a contextualização do tema, o problema de pesquisa, a justificativa e os objetivos do trabalho. Este arquivo é um modelo estrutural inicial e deve ser complementado com pesquisa acadêmica e revisão do seu orientador.'
           ),
 
           sectionHeading('2 OBJETIVOS'),
-          body('Defina o objetivo geral e os objetivos específicos do estudo.'),
+          body(
+            'Defina o objetivo geral do trabalho e os objetivos específicos que orientarão a investigação.'
+          ),
 
           sectionHeading('3 METODOLOGIA'),
-          body('Descreva os procedimentos metodológicos que serão utilizados na pesquisa.'),
+          body(
+            'Descreva o tipo de pesquisa, os procedimentos de coleta e análise de dados e os critérios adotados no estudo.'
+          ),
 
           sectionHeading('REFERÊNCIAS'),
           body(
-            'Inclua somente as fontes efetivamente consultadas e confira sua formatação conforme as normas e orientações da instituição.'
+            'Liste aqui apenas as obras e fontes efetivamente citadas no texto, seguindo as normas da ABNT e o manual da sua instituição de ensino.'
           ),
 
           new Paragraph({
             spacing: { before: 240 },
             children: [
               new TextRun({
-                text: 'Observação: modelo inicial gerado automaticamente. Revise as exigências atuais da ABNT e o manual da sua instituição antes de entregar.',
+                text: 'Nota: modelo inicial gerado automaticamente. Confira as normas ABNT vigentes e as regras específicas da sua instituição antes da entrega final.',
                 italics: true,
                 size: 20,
                 font: 'Times New Roman'
