@@ -140,18 +140,27 @@ function getEmojiForClass(className) {
 client.on(Events.InteractionCreate, async (interaction) => {
   // 1. Modal Submit Handler
   if (interaction.isModalSubmit()) {
-    if (interaction.customId === 'iniciar_tcc_modal') {
+   
+if (interaction.customId === 'iniciar_tcc_modal') {
   const nomeAluno = interaction.fields.getTextInputValue('tcc_aluno').trim();
   const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
   const instituicao = interaction.fields.getTextInputValue('tcc_instituicao').trim();
   const curso = interaction.fields.getTextInputValue('tcc_curso').trim();
   const titulo = interaction.fields.getTextInputValue('tcc_titulo').trim();
 
-  await interaction.deferReply({ ephemeral: true });
   const totalLabel = `iniciar_tcc_${interaction.user.id}_${Date.now()}`;
   console.time(totalLabel);
 
   try {
+    // 1. Medir o reconhecimento da interação pelo Discord
+    const deferStart = Date.now();
+
+    await interaction.deferReply({ ephemeral: true });
+
+    console.log(
+      `⏱️ [${totalLabel}] deferReply: ${Date.now() - deferStart}ms`
+    );
+
     const project = {
       userId: interaction.user.id,
       username: interaction.user.username,
@@ -163,14 +172,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
       title: titulo
     };
 
+    // 2. Salvar projeto e gerar Word simultaneamente
     console.time(`${totalLabel}_db_e_docx`);
+
     const [saved, documentBuffer] = await Promise.all([
       tccProjects.saveProject(project),
       tccProjects.generateTccDocx(project)
     ]);
+
     console.timeEnd(`${totalLabel}_db_e_docx`);
 
-    // Dispara estatísticas em paralelo sem segurar a entrega do arquivo ao usuário
+    // 3. Registrar estatísticas sem bloquear a entrega
     Promise.all([
       stats.recordEvent({
         userId: interaction.user.id,
@@ -184,11 +196,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         guildId: interaction.guildId,
         eventType: 'document_generated'
       })
-    ]).catch(err => console.error('⚠️ Falha ao registrar stats do TCC:', err.message));
+    ]).catch(err => {
+      console.error('Falha ao registrar estatísticas:', err);
+    });
 
+    // 4. Montar resumo
     const resumo = new EmbedBuilder()
       .setTitle('📚 Projeto de TCC salvo e documento criado')
-      .setDescription(`Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) e gerei um modelo Word inicial para você revisar. Ele contém capa, folha de rosto e seções estruturais; ainda não é um TCC pesquisado ou concluído.`)
+      .setDescription(
+        `Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) e gerei um modelo Word inicial para você revisar. Ele contém capa, folha de rosto e seções estruturais; ainda não é um TCC pesquisado ou concluído.`
+      )
       .addFields(
         { name: 'Aluno(a)', value: nomeAluno, inline: false },
         { name: 'Orientador(a)', value: orientador, inline: false },
@@ -197,21 +214,54 @@ client.on(Events.InteractionCreate, async (interaction) => {
         { name: 'Título provisório', value: titulo, inline: false }
       )
       .setColor('#5865F2')
-      .setFooter({ text: 'Assistente de TCC • Modelo inicial para revisão' });
+      .setFooter({
+        text: 'Assistente de TCC • Modelo inicial para revisão'
+      });
 
-    console.timeEnd(totalLabel);
-    return interaction.editReply({
+    // 5. Medir o envio do documento ao Discord
+    const envioStart = Date.now();
+
+    await interaction.editReply({
       embeds: [resumo],
-      files: [{ attachment: documentBuffer, name: `TCC_modelo_${saved.id}.docx` }]
+      files: [
+        {
+          attachment: documentBuffer,
+          name: `TCC_modelo_${saved.id}.docx`
+        }
+      ]
     });
+
+    console.log(
+      `📤 [${totalLabel}] envio_discord: ${Date.now() - envioStart}ms`
+    );
+
+    // 6. Tempo total
+    console.timeEnd(totalLabel);
+
+    console.log('✅ TCC concluído com sucesso.');
+
+    return;
+
   } catch (error) {
     console.timeEnd(totalLabel);
-    console.error('❌ Falha ao salvar projeto/gerar documento:', error);
-    return interaction.editReply({
-      content: '❌ Não consegui salvar o projeto ou gerar o Word. Confira se o bot foi reiniciado após a atualização e se a tabela de projetos foi criada no PostgreSQL. Consulte o terminal para ver o erro.'
+
+    console.error('❌ Falha ao iniciar TCC:', error);
+
+    const mensagemErro = {
+      content: '❌ Não consegui salvar o projeto ou gerar o Word. Consulte os Logs do Render para identificar o erro.'
+    };
+
+    if (interaction.deferred || interaction.replied) {
+      return interaction.editReply(mensagemErro);
+    }
+
+    return interaction.reply({
+      ...mensagemErro,
+      ephemeral: true
     });
   }
 }
+
     if (interaction.customId === 'vincular_modal') {
       const realName = interaction.fields.getTextInputValue('real_name_input').trim();
       const username = interaction.user.username.toLowerCase();
