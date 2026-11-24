@@ -21,6 +21,7 @@ const {
 const db = require('./database');
 const stats = require('./stats');
 const tccProjects = require('./tcc-projects');
+const auth = require('./auth');
 const { gerarRascunhoComPesquisa } = require('./ia-tcc');
 
 const http = require('http');
@@ -74,6 +75,32 @@ function withTimeout(promise, ms, label) {
 function getSlashCommands() {
   return [
     new SlashCommandBuilder()
+      .setName('cadastrar')
+      .setDescription('Criar conta para usar os comandos de TCC'),
+
+    new SlashCommandBuilder()
+      .setName('login')
+      .setDescription('Entrar na sua conta do bot de TCC'),
+
+    new SlashCommandBuilder()
+      .setName('logout')
+      .setDescription('Sair da sua sessão atual no bot'),
+
+    new SlashCommandBuilder()
+      .setName('manter_conectado')
+      .setDescription('Ativar ou desativar o modo manter conectado')
+      .addBooleanOption(option =>
+        option
+          .setName('ativar')
+          .setDescription('Escolha true para manter conectado ou false para desativar')
+          .setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName('usuarios_tcc')
+      .setDescription('Consultar utilizadores cadastrados e sessões (restrito ao administrador)'),
+
+    new SlashCommandBuilder()
       .setName('presenca')
       .setDescription('Registrar presença'),
 
@@ -91,7 +118,7 @@ function getSlashCommands() {
 
     new SlashCommandBuilder()
       .setName('rascunho_tcc')
-      .setDescription('Gerar um rascunho acadêmico com IA')
+      .setDescription('Gerar um rascunho académico com IA')
       .addStringOption(option =>
         option
           .setName('tema')
@@ -138,6 +165,36 @@ async function syncSlashCommands(client) {
   }
 }
 
+async function ensureAuthenticated(interaction) {
+  try {
+    const status = await auth.isUserLoggedIn(interaction.user.id);
+    if (status.loggedIn) {
+      return true;
+    }
+
+    const msg =
+      status.reason === 'not_registered'
+        ? '🔒 Para usar este comando, faça primeiro o seu registo com `/cadastrar`.'
+        : '🔒 A sua sessão expirou ou foi encerrada. Faça `/login` para continuar.';
+
+    if (interaction.deferred || interaction.replied) {
+      await interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }).catch(() => {});
+    } else {
+      await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+    }
+    return false;
+  } catch (error) {
+    console.error('❌ Erro ao verificar sessão do utilizador:', describeError(error));
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.reply({
+        content: '❌ Não foi possível verificar o seu estado de login agora.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+    return false;
+  }
+}
+
 // ======================================================
 // INICIALIZAÇÃO
 // ======================================================
@@ -146,6 +203,10 @@ client.once(Events.ClientReady, () => {
   console.log(`🤖 Bot logado como ${client.user.tag}`);
 
   syncSlashCommands(client);
+
+  auth.initAuth().catch(error => {
+    console.error('❌ Falha ao preparar tabela de utilizadores:', error);
+  });
 
   stats.initStats().catch(error => {
     console.error('❌ Falha ao preparar estatísticas:', error);
@@ -235,7 +296,64 @@ client.on(Events.InteractionCreate, async interaction => {
 
   if (interaction.isModalSubmit()) {
 
-  if (interaction.customId === 'iniciar_tcc_modal') {
+    if (interaction.customId === 'cadastrar_modal') {
+      const loginUserInput = interaction.fields.getTextInputValue('auth_login_user').trim();
+      const passwordInput = interaction.fields.getTextInputValue('auth_password').trim();
+      const keepConnectedInput = interaction.fields.getTextInputValue('auth_keep_connected').trim();
+
+      try {
+        const result = await auth.registerUser({
+          discordUserId: interaction.user.id,
+          discordUsername: interaction.user.username,
+          loginUser: loginUserInput,
+          password: passwordInput,
+          keepConnectedInput
+        });
+
+        return interaction.reply({
+          content: result.ok ? `✅ ${result.message}` : `⚠️ ${result.message}`,
+          flags: MessageFlags.Ephemeral
+        });
+      } catch (error) {
+        console.error('❌ Erro no registo de utilizador:', describeError(error));
+        return interaction.reply({
+          content: '❌ Erro ao concluir o registo. Tente novamente.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+    }
+
+    if (interaction.customId === 'login_modal') {
+      const loginUserInput = interaction.fields.getTextInputValue('auth_login_user').trim();
+      const passwordInput = interaction.fields.getTextInputValue('auth_password').trim();
+      const keepConnectedInput = interaction.fields.getTextInputValue('auth_keep_connected').trim();
+
+      try {
+        const result = await auth.loginUser({
+          discordUserId: interaction.user.id,
+          discordUsername: interaction.user.username,
+          loginUser: loginUserInput,
+          password: passwordInput,
+          keepConnectedInput
+        });
+
+        return interaction.reply({
+          content: result.ok ? `✅ ${result.message}` : `⚠️ ${result.message}`,
+          flags: MessageFlags.Ephemeral
+        });
+      } catch (error) {
+        console.error('❌ Erro no login de utilizador:', describeError(error));
+        return interaction.reply({
+          content: '❌ Erro ao realizar o login. Tente novamente.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+    }
+
+    if (interaction.customId === 'iniciar_tcc_modal') {
+      const allowed = await ensureAuthenticated(interaction);
+      if (!allowed) return;
+
       const nomeAluno = interaction.fields.getTextInputValue('tcc_aluno').trim();
       const cursoInstituicao = interaction.fields.getTextInputValue('tcc_curso_instituicao').trim();
       const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
@@ -307,7 +425,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const resumo = new EmbedBuilder()
           .setTitle('📚 Projeto de TCC salvo, Word ABNT e PowerPoint criados')
           .setDescription(
-            `Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) ` +
+            `O seu projeto foi guardado na base de dados (projeto nº ${saved.id}) ` +
             'com estrutura ABNT e apresentação em PowerPoint temática prontos para revisão.'
           )
           .addFields(
@@ -319,14 +437,14 @@ client.on(Events.InteractionCreate, async interaction => {
           )
           .setColor('#5865F2')
           .setFooter({
-            text: 'Assistente de TCC • Revise com seu orientador antes da entrega'
+            text: 'Assistente de TCC • Reveja com o seu orientador antes da entrega'
           });
 
         const envioStart = Date.now();
         console.log(`📤 [${totalLabel}] Enviando arquivos Word e PowerPoint...`);
 
         const payloadArquivos = {
-          content: `📄 <@${interaction.user.id}> — Arquivos do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e PowerPoint:`,
+          content: `📄 <@${interaction.user.id}> — Ficheiros do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e PowerPoint:`,
           files: [
             new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
             new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
@@ -352,7 +470,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if (!enviado) {
           await withTimeout(
             interaction.followUp({
-              content: `📄 Arquivos do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e PowerPoint:`,
+              content: `📄 Ficheiros do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e PowerPoint:`,
               files: [
                 new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
                 new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
@@ -367,7 +485,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         await Promise.race([
           interaction.editReply({
-            content: '✅ Projeto salvo e arquivos Word (.docx) + PowerPoint (.pptx) enviados!',
+            content: '✅ Projeto guardado e ficheiros Word (.docx) + PowerPoint (.pptx) enviados!',
             embeds: [resumo]
           }).catch(() => {}),
           new Promise(resolve => setTimeout(resolve, 2500))
@@ -388,7 +506,7 @@ client.on(Events.InteractionCreate, async interaction => {
             await Promise.race([
               interaction.editReply({
                 content:
-                  '❌ Não consegui concluir o envio dos arquivos. ' +
+                  '❌ Não consegui concluir o envio dos ficheiros. ' +
                   'Confira os Logs do Render para ver o detalhe.',
                 embeds: [],
                 files: []
@@ -432,14 +550,14 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.reply({
           content:
             `✅ Conta vinculada com sucesso a **${realName}**!\n` +
-            'Digite o comando `/presenca` novamente para registrar sua presença.',
+            'Digite o comando `/presenca` novamente para registar a sua presença.',
           flags: MessageFlags.Ephemeral
         });
       } catch (error) {
         console.error('Erro ao vincular conta:', error);
 
         await interaction.reply({
-          content: '❌ Erro ao vincular sua conta.',
+          content: '❌ Erro ao vincular a sua conta.',
           flags: MessageFlags.Ephemeral
         });
       }
@@ -475,7 +593,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if (mappingRes.rowCount === 0) {
           return interaction.reply({
             content:
-              '⚠️ Sua conta ainda não está vinculada. ' +
+              '⚠️ A sua conta ainda não está vinculada. ' +
               'Digite `/presenca` para vincular primeiro.',
             flags: MessageFlags.Ephemeral
           });
@@ -528,10 +646,10 @@ client.on(Events.InteractionCreate, async interaction => {
           .setTitle('✅ Presença Confirmada!')
           .setDescription(
             `Olá, **${mappedName}**!\n` +
-            `Sua presença foi registrada na matéria: **${className}**!`
+            `A sua presença foi registada na disciplina: **${className}**!`
           )
           .addFields(
-            { name: '📅 Matéria', value: className, inline: true },
+            { name: '📅 Disciplina', value: className, inline: true },
             { name: '📊 Total no Discord', value: String(totalPresencas), inline: true }
           )
           .setColor('#10B981')
@@ -547,7 +665,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         if (!interaction.replied && !interaction.deferred) {
           await interaction.reply({
-            content: '❌ Erro ao registrar presença na matéria selecionada.',
+            content: '❌ Erro ao registar presença na disciplina selecionada.',
             flags: MessageFlags.Ephemeral
           });
         }
@@ -570,10 +688,188 @@ client.on(Events.InteractionCreate, async interaction => {
     eventType: 'command',
     commandName: interaction.commandName
   }).catch(error => {
-    console.error('⚠️ Falha ao registrar uso do comando:', describeError(error));
+    console.error('⚠️ Falha ao registar uso do comando:', describeError(error));
   });
 
+  if (interaction.commandName === 'cadastrar') {
+    const modal = new ModalBuilder()
+      .setCustomId('cadastrar_modal')
+      .setTitle('Registo • Assistente TCC');
+
+    const loginInput = new TextInputBuilder()
+      .setCustomId('auth_login_user')
+      .setLabel('Escolha um nome de utilizador para login')
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(3)
+      .setMaxLength(80)
+      .setRequired(true);
+
+    const passwordInput = new TextInputBuilder()
+      .setCustomId('auth_password')
+      .setLabel('Crie uma senha (mínimo 4 caracteres)')
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(4)
+      .setMaxLength(100)
+      .setRequired(true);
+
+    const keepInput = new TextInputBuilder()
+      .setCustomId('auth_keep_connected')
+      .setLabel('Manter conectado? (sim ou nao)')
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(1)
+      .setMaxLength(10)
+      .setRequired(false)
+      .setValue('sim');
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(loginInput),
+      new ActionRowBuilder().addComponents(passwordInput),
+      new ActionRowBuilder().addComponents(keepInput)
+    );
+
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.commandName === 'login') {
+    const saved = await auth.getSavedLogin(interaction.user.id).catch(() => null);
+    const defaultLogin = saved?.saved_login_user || saved?.login_user || '';
+    const defaultKeep = saved?.keep_connected === false ? 'nao' : 'sim';
+
+    const modal = new ModalBuilder()
+      .setCustomId('login_modal')
+      .setTitle('Login • Assistente TCC');
+
+    const loginInput = new TextInputBuilder()
+      .setCustomId('auth_login_user')
+      .setLabel('Nome de utilizador')
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(3)
+      .setMaxLength(80)
+      .setRequired(true);
+
+    if (defaultLogin) {
+      loginInput.setValue(defaultLogin);
+    }
+
+    const passwordInput = new TextInputBuilder()
+      .setCustomId('auth_password')
+      .setLabel('A sua senha')
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(4)
+      .setMaxLength(100)
+      .setRequired(true);
+
+    const keepInput = new TextInputBuilder()
+      .setCustomId('auth_keep_connected')
+      .setLabel('Manter conectado? (sim ou nao)')
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(1)
+      .setMaxLength(10)
+      .setRequired(false)
+      .setValue(defaultKeep);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(loginInput),
+      new ActionRowBuilder().addComponents(passwordInput),
+      new ActionRowBuilder().addComponents(keepInput)
+    );
+
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.commandName === 'logout') {
+    try {
+      await auth.logoutUser(interaction.user.id);
+      return interaction.reply({
+        content: '👋 Sessão encerrada e modo manter conectado desativado.',
+        flags: MessageFlags.Ephemeral
+      });
+    } catch (error) {
+      console.error('❌ Erro no /logout:', describeError(error));
+      return interaction.reply({
+        content: '❌ Não foi possível encerrar a sessão agora.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  }
+
+  if (interaction.commandName === 'manter_conectado') {
+    const ativar = interaction.options.getBoolean('ativar', true);
+    try {
+      const updated = await auth.setKeepConnected(interaction.user.id, ativar);
+      if (!updated) {
+        return interaction.reply({
+          content: '⚠️ Ainda não tem conta registada. Use `/cadastrar` primeiro.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      return interaction.reply({
+        content:
+          `⚙️ Modo manter conectado **${updated.keep_connected ? 'ATIVADO' : 'DESATIVADO'}** ` +
+          `para o utilizador **${updated.login_user}**.`,
+        flags: MessageFlags.Ephemeral
+      });
+    } catch (error) {
+      console.error('❌ Erro no /manter_conectado:', describeError(error));
+      return interaction.reply({
+        content: '❌ Não foi possível atualizar a preferência.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  }
+
+  if (interaction.commandName === 'usuarios_tcc') {
+    if (!process.env.OWNER_USER_ID || String(interaction.user.id) !== String(process.env.OWNER_USER_ID)) {
+      return interaction.reply({
+        content: '🔒 Este comando é exclusivo do administrador do bot.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    try {
+      const users = await auth.listRegisteredUsers();
+      if (!users.length) {
+        return interaction.reply({
+          content: '📋 Ainda não existem utilizadores registados na tabela `tcc_users`.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      const linhas = users.slice(0, 20).map((u, idx) => {
+        const estado = u.is_logged_in ? '🟢 Online' : '⚪ Offline';
+        const manter = u.keep_connected ? 'Sim' : 'Não';
+        const salvo = u.saved_login_user || u.login_user;
+        return (
+          `${idx + 1}. **${u.login_user}** (@${u.discord_username} • ID: \`${u.discord_user_id}\`)\n` +
+          `   Estado: ${estado} | Login salvo: \`${salvo}\` | Manter conectado: **${manter}**`
+        );
+      });
+
+      const embed = new EmbedBuilder()
+        .setTitle('🔐 Registo de Utilizadores (Apenas Administrador)')
+        .setDescription(linhas.join('\n\n').slice(0, 4000))
+        .setColor('#5865F2')
+        .setFooter({ text: `Total de registos: ${users.length}` })
+        .setTimestamp();
+
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    } catch (error) {
+      console.error('❌ Erro ao consultar utilizadores:', describeError(error));
+      return interaction.reply({
+        content: '❌ Erro ao consultar a lista de utilizadores registados.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  }
+
   if (interaction.commandName === 'rascunho_tcc') {
+    const allowed = await ensureAuthenticated(interaction);
+    if (!allowed) return;
+
     const tema = interaction.options.getString('tema');
     const objetivo = interaction.options.getString('objetivo') || '';
 
@@ -600,18 +896,18 @@ client.on(Events.InteractionCreate, async interaction => {
 
       return interaction.editReply({
         content:
-          '📚 **Seu rascunho acadêmico está pronto!**\n' +
-          `🔍 Foram encontradas ${(resultado.fontes || []).length} fontes acadêmicas.\n` +
-          'Confira os títulos, autores e links; leia as fontes antes de utilizar as informações no TCC e revise o texto com seu orientador.',
+          '📚 **O seu rascunho académico está pronto!**\n' +
+          `🔍 Foram encontradas ${(resultado.fontes || []).length} fontes académicas.\n` +
+          'Confira os títulos, autores e links; leia as fontes antes de utilizar as informações no TCC e reveja o texto com o seu orientador.',
         files: [arquivo]
       });
     } catch (error) {
-      console.error('Erro ao gerar rascunho com pesquisa acadêmica:', error);
+      console.error('Erro ao gerar rascunho com pesquisa académica:', error);
 
       return interaction.editReply({
         content:
           '❌ Não foi possível gerar o rascunho ou pesquisar as fontes. ' +
-          'Tente novamente em alguns minutos ou use um tema diferente.'
+          'Tente novamente dentro de alguns minutos ou utilize um tema diferente.'
       });
     }
   }
@@ -626,7 +922,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (!isAdmin && !hasAllowedRole) {
       return interaction.reply({
-        content: '🔒 Este comando é restrito à equipe autorizada.',
+        content: '🔒 Este comando é restrito à equipa autorizada.',
         flags: MessageFlags.Ephemeral
       });
     }
@@ -640,15 +936,15 @@ client.on(Events.InteractionCreate, async interaction => {
             .slice(0, 5)
             .map(item => `**/${item.command_name}** — ${item.total} uso(s)`)
             .join('\n')
-        : 'Ainda não há comandos registrados.';
+        : 'Ainda não há comandos registados.';
 
       const embed = new EmbedBuilder()
         .setTitle('📊 Estatísticas do Bot TCC')
         .setDescription(
-          'Indicadores calculados a partir dos eventos registrados desde a ativação das estatísticas.'
+          'Indicadores calculados a partir dos eventos registados desde a ativação das estatísticas.'
         )
         .addFields(
-          { name: '👥 Usuários únicos', value: String(totals.unique_users), inline: true },
+          { name: '👥 Utilizadores únicos', value: String(totals.unique_users), inline: true },
           { name: '📅 Ativos nas últimas 24h', value: String(totals.active_today), inline: true },
           { name: '🗓️ Ativos em 7 dias', value: String(totals.active_week), inline: true },
           { name: '📈 Ativos em 30 dias', value: String(totals.active_month), inline: true },
@@ -680,6 +976,9 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   if (interaction.commandName === 'iniciar_tcc') {
+    const allowed = await ensureAuthenticated(interaction);
+    if (!allowed) return;
+
     const modal = new ModalBuilder()
       .setCustomId('iniciar_tcc_modal')
       .setTitle('Novo projeto de TCC');
@@ -821,7 +1120,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
       if (check.rows.length > 0) {
         return interaction.reply({
-          content: '⚠️ Você já marcou presença hoje!',
+          content: '⚠️ Já marcou presença hoje!',
           flags: MessageFlags.Ephemeral
         });
       }
@@ -840,7 +1139,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const realNameInput = new TextInputBuilder()
           .setCustomId('real_name_input')
-          .setLabel('Seu Nome Completo (como na chamada)')
+          .setLabel('O seu Nome Completo (como na chamada)')
           .setStyle(TextInputStyle.Short)
           .setMinLength(3)
           .setMaxLength(100)
@@ -881,10 +1180,10 @@ client.on(Events.InteractionCreate, async interaction => {
         const totalPresencas = total.rows[0].total;
 
         const embed = new EmbedBuilder()
-          .setTitle('✅ Presença Registrada')
+          .setTitle('✅ Presença Registada')
           .setDescription(
             `Olá, **${mappedName}**!\n` +
-            'Sua presença geral no Discord foi confirmada (nenhuma aula ativa no momento).'
+            'A sua presença geral no Discord foi confirmada (nenhuma aula ativa de momento).'
           )
           .addFields(
             { name: '📅 Hoje', value: 'Confirmada', inline: true },
@@ -937,13 +1236,13 @@ client.on(Events.InteractionCreate, async interaction => {
         const totalPresencas = total.rows[0].total;
 
         const embed = new EmbedBuilder()
-          .setTitle('✅ Presença Registrada')
+          .setTitle('✅ Presença Registada')
           .setDescription(
             `Olá, **${mappedName}**!\n` +
             `📖 **Chamada Escolar:** Presença confirmada na aula ativa de **${className}**!`
           )
           .addFields(
-            { name: '📅 Matéria', value: className, inline: true },
+            { name: '📅 Disciplina', value: className, inline: true },
             { name: '📊 Total', value: String(totalPresencas), inline: true }
           )
           .setColor('#5865F2')
@@ -956,11 +1255,11 @@ client.on(Events.InteractionCreate, async interaction => {
       }
 
       const embed = new EmbedBuilder()
-        .setTitle('🏫 Escolha sua Aula')
+        .setTitle('🏫 Escolha a sua Aula')
         .setDescription(
           `Olá, **${mappedName}**!\n` +
-          'Identificamos mais de uma aula ativa no momento. ' +
-          'Clique no botão correspondente para registrar sua presença:'
+          'Identificámos mais de uma aula ativa de momento. ' +
+          'Clique no botão correspondente para registar a sua presença:'
         )
         .setColor('#5865F2')
         .setFooter({ text: 'Mercury Class' })
