@@ -8,6 +8,7 @@ const {
   EmbedBuilder,
   AttachmentBuilder,
   ActionRowBuilder,
+  ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
   REST,
@@ -91,6 +92,50 @@ function buildKeepConnectedMenu(currentValue = true) {
   return new ActionRowBuilder().addComponents(select);
 }
 
+const RATING_DESCRIPTIONS = {
+  1: '1 — Menos gostei',
+  2: '2 — Muito ruim',
+  3: '3 — Ruim',
+  4: '4 — Abaixo do esperado',
+  5: '5 — Regular',
+  6: '6 — Razoável',
+  7: '7 — Bom',
+  8: '8 — Muito bom',
+  9: '9 — Ótimo',
+  10: '10 — Gostei muito'
+};
+
+function buildRatingMenu() {
+  const options = [];
+  for (let n = 1; n <= 10; n += 1) {
+    let description = 'Avaliação intermediária';
+    if (n === 1) description = 'Menos gostei';
+    else if (n === 10) description = 'Gostei muito';
+
+    options.push({
+      label: `Nota ${n}`,
+      description,
+      value: String(n)
+    });
+  }
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('avaliar_nota_select')
+    .setPlaceholder('1 (Menos gostei) a 10 (Gostei muito)')
+    .addOptions(options);
+
+  return new ActionRowBuilder().addComponents(select);
+}
+
+function buildImprovementButton(feedbackId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`abrir_melhorias_${feedbackId}`)
+      .setLabel('Escrever o que precisa melhorar')
+      .setStyle(ButtonStyle.Primary)
+  );
+}
+
 // ======================================================
 // COMANDOS SLASH
 // ======================================================
@@ -115,7 +160,7 @@ function getSlashCommands() {
 
     new SlashCommandBuilder()
       .setName('avaliar')
-      .setDescription('Avaliar o bot (emoji, escrita ou 1 a 10) e enviar o que precisa melhorar'),
+      .setDescription('Avaliar de 1 (menos gostei) a 10 (gostei muito) e escrever melhorias'),
 
     new SlashCommandBuilder()
       .setName('avaliacoes_tcc')
@@ -348,47 +393,203 @@ client.on(Events.InteractionCreate, async interaction => {
       }
     }
 
+    if (interaction.customId === 'avaliar_nota_select') {
+      const notaNum = Number(interaction.values[0]);
+      const ratingLabel = RATING_DESCRIPTIONS[notaNum] || `Nota ${notaNum}`;
+
+      try {
+        const savedLogin = await auth.getSavedLogin(interaction.user.id).catch(() => null);
+        const created = await feedback.saveRating({
+          discordUserId: interaction.user.id,
+          discordUsername: interaction.user.username,
+          userEmail: savedLogin?.email || savedLogin?.saved_email || null,
+          ratingLabel
+        });
+
+        return interaction.update({
+          content:
+            `⭐ Nota selecionada: **${ratingLabel}**.\n` +
+            'Agora clique no botão abaixo para escrever **o que precisa melhorar**:',
+          components: [buildImprovementButton(created.id)]
+        });
+      } catch (error) {
+        console.error('❌ Erro ao guardar nota de avaliação:', describeError(error));
+        return interaction.reply({
+          content: '❌ Não foi possível guardar a sua nota agora.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+    }
+
     return;
   }
 
   // ====================================================
-  // 2. ENVIO DE FORMULÁRIOS (MODALS)
+  // 2. BOTÕES
+  // ====================================================
+
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith('abrir_melhorias_')) {
+      const feedbackId = interaction.customId.replace('abrir_melhorias_', '').trim();
+
+      const modal = new ModalBuilder()
+        .setCustomId(`melhorias_modal_${feedbackId}`)
+        .setTitle('O que precisa melhorar?');
+
+      const improvementInput = new TextInputBuilder()
+        .setCustomId('feedback_improvements')
+        .setLabel('O que precisa melhorar?')
+        .setStyle(TextInputStyle.Paragraph)
+        .setMinLength(2)
+        .setMaxLength(2000)
+        .setRequired(true)
+        .setPlaceholder('Escreva o que podemos melhorar no bot');
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(improvementInput)
+      );
+
+      return interaction.showModal(modal);
+    }
+
+    if (interaction.customId.startsWith('presenca_aula_')) {
+      const parts = interaction.customId.split('_');
+
+      const sessionId = parseInt(parts[2], 10);
+      const classId = parseInt(parts[3], 10);
+
+      const userId = interaction.user.id;
+      const username = interaction.user.username;
+      const guildId = interaction.guild?.id || 'guild_default';
+
+      try {
+        const mappingRes = await db.query(
+          `SELECT real_name
+           FROM discord_mappings
+           WHERE LOWER(discord_username) = LOWER($1)`,
+          [username]
+        );
+
+        if (mappingRes.rowCount === 0) {
+          return interaction.reply({
+            content:
+              '⚠️ A sua conta ainda não está vinculada. ' +
+              'Digite `/presenca` para vincular primeiro.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        const mappedName = mappingRes.rows[0].real_name;
+
+        const classRes = await db.query(
+          'SELECT name FROM classes WHERE id = $1',
+          [classId]
+        );
+
+        const className = classRes.rowCount > 0
+          ? classRes.rows[0].name
+          : 'Aula';
+
+        const checkAtt = await db.query(
+          `SELECT 1
+           FROM attendances
+           WHERE class_session_id = $1
+           AND student_name = $2`,
+          [sessionId, mappedName]
+        );
+
+        if (checkAtt.rowCount === 0) {
+          await db.query(
+            `INSERT INTO attendances
+             (class_session_id, class_id, student_name, login_at, student_id)
+             VALUES ($1, $2, $3, NOW(), $4)`,
+            [sessionId, classId, mappedName, userId]
+          );
+        }
+
+        await db.query(
+          `INSERT INTO presencas (user_id, username, guild_id, data)
+           VALUES ($1, $2, $3, NOW())`,
+          [userId, username, guildId]
+        );
+
+        const total = await db.query(
+          `SELECT COUNT(*) AS total
+           FROM presencas
+           WHERE user_id = $1 AND guild_id = $2`,
+          [userId, guildId]
+        );
+
+        const totalPresencas = total.rows[0].total;
+
+        const embed = new EmbedBuilder()
+          .setTitle('✅ Presença Confirmada!')
+          .setDescription(
+            `Olá, **${mappedName}**!\n` +
+            `A sua presença foi registada na disciplina: **${className}**!`
+          )
+          .addFields(
+            { name: '📅 Disciplina', value: className, inline: true },
+            { name: '📊 Total no Discord', value: String(totalPresencas), inline: true }
+          )
+          .setColor('#10B981')
+          .setFooter({ text: 'Mercury Class' })
+          .setTimestamp();
+
+        await interaction.update({
+          embeds: [embed],
+          components: []
+        });
+      } catch (error) {
+        console.error('Erro ao clicar no botão de presença:', error);
+
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: '❌ Erro ao registar presença na disciplina selecionada.',
+            flags: MessageFlags.Ephemeral
+          });
+        }
+      }
+    }
+
+    return;
+  }
+
+  // ====================================================
+  // 3. ENVIO DE FORMULÁRIOS (MODALS)
   // ====================================================
 
   if (interaction.isModalSubmit()) {
 
-    if (interaction.customId === 'avaliar_modal') {
-      const ratingInput = interaction.fields.getTextInputValue('feedback_rating').trim();
+    if (interaction.customId.startsWith('melhorias_modal_')) {
+      const feedbackId = interaction.customId.replace('melhorias_modal_', '').trim();
       const improvementNotes = interaction.fields.getTextInputValue('feedback_improvements').trim();
 
       try {
-        const savedLogin = await auth.getSavedLogin(interaction.user.id).catch(() => null);
-        const result = await feedback.saveFeedback({
+        const updated = await feedback.updateImprovementNotes({
+          feedbackId,
           discordUserId: interaction.user.id,
-          discordUsername: interaction.user.username,
-          userEmail: savedLogin?.email || savedLogin?.saved_email || null,
-          ratingInput,
           improvementNotes
         });
 
-        if (!result.ok) {
+        if (!updated.ok) {
           return interaction.reply({
-            content: `⚠️ ${result.message}`,
+            content: `⚠️ ${updated.message}`,
             flags: MessageFlags.Ephemeral
           });
         }
 
         return interaction.reply({
           content:
-            `✅ ${result.message}\n` +
-            `• Avaliação: **${ratingInput}**\n` +
-            '• Sugestões registadas para análise.',
+            `✅ ${updated.message}\n` +
+            `• Nota: **${updated.ratingInput}**\n` +
+            `• O que precisa melhorar: ${improvementNotes}`,
           flags: MessageFlags.Ephemeral
         });
       } catch (error) {
-        console.error('❌ Erro ao guardar avaliação:', describeError(error));
+        console.error('❌ Erro ao salvar melhorias:', describeError(error));
         return interaction.reply({
-          content: '❌ Não foi possível guardar a sua avaliação agora. Tente novamente.',
+          content: '❌ Não foi possível salvar o que precisa melhorar agora.',
           flags: MessageFlags.Ephemeral
         });
       }
@@ -684,115 +885,6 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   // ====================================================
-  // 3. BOTÕES DE PRESENÇA
-  // ====================================================
-
-  if (interaction.isButton()) {
-
-    if (interaction.customId.startsWith('presenca_aula_')) {
-      const parts = interaction.customId.split('_');
-
-      const sessionId = parseInt(parts[2], 10);
-      const classId = parseInt(parts[3], 10);
-
-      const userId = interaction.user.id;
-      const username = interaction.user.username;
-      const guildId = interaction.guild?.id || 'guild_default';
-
-      try {
-        const mappingRes = await db.query(
-          `SELECT real_name
-           FROM discord_mappings
-           WHERE LOWER(discord_username) = LOWER($1)`,
-          [username]
-        );
-
-        if (mappingRes.rowCount === 0) {
-          return interaction.reply({
-            content:
-              '⚠️ A sua conta ainda não está vinculada. ' +
-              'Digite `/presenca` para vincular primeiro.',
-            flags: MessageFlags.Ephemeral
-          });
-        }
-
-        const mappedName = mappingRes.rows[0].real_name;
-
-        const classRes = await db.query(
-          'SELECT name FROM classes WHERE id = $1',
-          [classId]
-        );
-
-        const className = classRes.rowCount > 0
-          ? classRes.rows[0].name
-          : 'Aula';
-
-        const checkAtt = await db.query(
-          `SELECT 1
-           FROM attendances
-           WHERE class_session_id = $1
-           AND student_name = $2`,
-          [sessionId, mappedName]
-        );
-
-        if (checkAtt.rowCount === 0) {
-          await db.query(
-            `INSERT INTO attendances
-             (class_session_id, class_id, student_name, login_at, student_id)
-             VALUES ($1, $2, $3, NOW(), $4)`,
-            [sessionId, classId, mappedName, userId]
-          );
-        }
-
-        await db.query(
-          `INSERT INTO presencas (user_id, username, guild_id, data)
-           VALUES ($1, $2, $3, NOW())`,
-          [userId, username, guildId]
-        );
-
-        const total = await db.query(
-          `SELECT COUNT(*) AS total
-           FROM presencas
-           WHERE user_id = $1 AND guild_id = $2`,
-          [userId, guildId]
-        );
-
-        const totalPresencas = total.rows[0].total;
-
-        const embed = new EmbedBuilder()
-          .setTitle('✅ Presença Confirmada!')
-          .setDescription(
-            `Olá, **${mappedName}**!\n` +
-            `A sua presença foi registada na disciplina: **${className}**!`
-          )
-          .addFields(
-            { name: '📅 Disciplina', value: className, inline: true },
-            { name: '📊 Total no Discord', value: String(totalPresencas), inline: true }
-          )
-          .setColor('#10B981')
-          .setFooter({ text: 'Mercury Class' })
-          .setTimestamp();
-
-        await interaction.update({
-          embeds: [embed],
-          components: []
-        });
-      } catch (error) {
-        console.error('Erro ao clicar no botão de presença:', error);
-
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({
-            content: '❌ Erro ao registar presença na disciplina selecionada.',
-            flags: MessageFlags.Ephemeral
-          });
-        }
-      }
-    }
-
-    return;
-  }
-
-  // ====================================================
   // 4. COMANDOS SLASH
   // ====================================================
 
@@ -809,34 +901,13 @@ client.on(Events.InteractionCreate, async interaction => {
   });
 
   if (interaction.commandName === 'avaliar') {
-    const modal = new ModalBuilder()
-      .setCustomId('avaliar_modal')
-      .setTitle('Avaliação • Assistente TCC');
-
-    const ratingInput = new TextInputBuilder()
-      .setCustomId('feedback_rating')
-      .setLabel('O quanto gostou? (emoji, escrita ou 1 a 10)')
-      .setStyle(TextInputStyle.Short)
-      .setMinLength(1)
-      .setMaxLength(120)
-      .setRequired(true)
-      .setPlaceholder('Ex.: 10, 8/10, 🤩 ou excelente');
-
-    const improvementInput = new TextInputBuilder()
-      .setCustomId('feedback_improvements')
-      .setLabel('O que precisa melhorar?')
-      .setStyle(TextInputStyle.Paragraph)
-      .setMinLength(2)
-      .setMaxLength(2000)
-      .setRequired(true)
-      .setPlaceholder('Escreva suas sugestões ou o que podemos melhorar');
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(ratingInput),
-      new ActionRowBuilder().addComponents(improvementInput)
-    );
-
-    return interaction.showModal(modal);
+    return interaction.reply({
+      content:
+        '⭐ **O quanto você gostou do bot?**\n' +
+        'Escolha uma nota de **1** (menos gostei) a **10** (gostei muito) no menu abaixo:',
+      components: [buildRatingMenu()],
+      flags: MessageFlags.Ephemeral
+    });
   }
 
   if (interaction.commandName === 'avaliacoes_tcc') {
@@ -858,9 +929,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
       const linhas = items.map((fb, idx) => {
         const who = fb.user_email ? `${fb.user_email} (@${fb.discord_username})` : `@${fb.discord_username}`;
+        const melhorias = fb.improvement_notes || '(não preenchido)';
         return (
-          `${idx + 1}. **Avaliação:** ${fb.rating_input} — *${who}*\n` +
-          `   **Melhorar:** ${fb.improvement_notes}`
+          `${idx + 1}. **Nota:** ${fb.rating_input} — *${who}*\n` +
+          `   **Melhorar:** ${melhorias}`
         );
       });
 
