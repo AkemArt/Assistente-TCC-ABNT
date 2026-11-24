@@ -300,9 +300,9 @@ client.on(Events.InteractionCreate, async interaction => {
           .setTitle('📚 Projeto de TCC salvo e documento criado')
           .setDescription(
             `Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) ` +
-            'e gerei um modelo Word inicial para você revisar. ' +
-            'Ele contém capa, folha de rosto e seções estruturais; ' +
-            'ainda não é um TCC pesquisado ou concluído.'
+            'e gerei um modelo Word inicial estruturado para você revisar. ' +
+            'Ele contém capa, folha de rosto e seções iniciais; ' +
+            'revise com seu orientador e adicione o desenvolvimento e as referências definitivas.'
           )
           .addFields(
             { name: 'Aluno(a)', value: nomeAluno, inline: false },
@@ -316,52 +316,72 @@ client.on(Events.InteractionCreate, async interaction => {
             text: 'Assistente de TCC • Modelo inicial para revisão'
           });
 
+        await withTimeout(
+          interaction.editReply({
+            content: '✅ Projeto salvo! Enviando o arquivo Word (.docx)...',
+            embeds: [resumo]
+          }),
+          15000,
+          `${totalLabel}_editReply_resumo`
+        );
+
+        const envioStart = Date.now();
+        console.log(`📤 [${totalLabel}] Enviando arquivo Word via followUp...`);
+
         const arquivoWord = new AttachmentBuilder(rawBuffer, {
           name: `TCC_modelo_${saved.id}.docx`
         });
 
-        const envioStart = Date.now();
-        console.log(`📤 [${totalLabel}] Enviando confirmação e Word ao Discord...`);
-
         try {
           await withTimeout(
-            interaction.editReply({
-              content: '📄 Seu modelo inicial de TCC está pronto!',
-              embeds: [resumo],
-              files: [arquivoWord]
+            interaction.followUp({
+              content: `📄 **Seu modelo de TCC (Projeto nº ${saved.id}) está pronto:**`,
+              files: [arquivoWord],
+              flags: MessageFlags.Ephemeral
             }),
             20000,
-            `${totalLabel}_editReply_docx`
+            `${totalLabel}_followUp_docx`
           );
+
+          await interaction.editReply({
+            content: '📄 Seu modelo inicial de TCC e o arquivo Word foram enviados!',
+            embeds: [resumo]
+          });
 
           console.log(
-            `✅ [${totalLabel}] Confirmação e documento enviados em ` +
-            `${Date.now() - envioStart}ms.`
+            `✅ [${totalLabel}] Arquivo Word enviado em ${Date.now() - envioStart}ms.`
           );
-        } catch (uploadError) {
-          console.error(
-            `❌ [${totalLabel}] Falha ao enviar confirmação e Word:`,
-            describeError(uploadError)
+        } catch (ephemeralFileError) {
+          console.warn(
+            `⚠️ [${totalLabel}] Falha no followUp efêmero com arquivo, tentando público:`,
+            describeError(ephemeralFileError)
           );
 
-          try {
-            await interaction.editReply({
-              content:
-                `✅ Projeto nº ${saved.id} salvo com sucesso! ` +
-                'Não foi possível anexar o arquivo .docx neste envio.',
-              embeds: [resumo],
-              files: []
-            });
-          } catch (replyError) {
-            console.error(
-              `❌ [${totalLabel}] Não foi possível atualizar a resposta:`,
-              describeError(replyError)
-            );
-          }
+          const arquivoFallback = new AttachmentBuilder(rawBuffer, {
+            name: `TCC_modelo_${saved.id}.docx`
+          });
+
+          await withTimeout(
+            interaction.followUp({
+              content: `📄 Modelo inicial de TCC do projeto nº ${saved.id} (${nomeAluno}):`,
+              files: [arquivoFallback]
+            }),
+            20000,
+            `${totalLabel}_followUp_public_docx`
+          );
+
+          await interaction.editReply({
+            content: '📄 Seu modelo inicial de TCC foi enviado na mensagem abaixo!',
+            embeds: [resumo]
+          });
+
+          console.log(
+            `✅ [${totalLabel}] Arquivo Word enviado (fallback) em ${Date.now() - envioStart}ms.`
+          );
         }
 
         console.timeEnd(totalLabel);
-        console.log(`🎉 [${totalLabel}] TCC concluído.`);
+        console.log(`🎉 [${totalLabel}] TCC concluído com sucesso.`);
         return;
       } catch (error) {
         console.error(
@@ -374,8 +394,8 @@ client.on(Events.InteractionCreate, async interaction => {
           if (interaction.deferred || interaction.replied) {
             await interaction.editReply({
               content:
-                '❌ Não consegui concluir a criação do projeto ou do Word. ' +
-                'O erro foi registrado nos Logs do Render.',
+                '❌ Não consegui concluir a criação do projeto ou o envio do Word. ' +
+                'Confira os Logs do Render para ver o detalhe.',
               embeds: [],
               files: []
             });
