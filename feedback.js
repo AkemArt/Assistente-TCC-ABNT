@@ -12,50 +12,62 @@ async function initFeedback() {
       discord_username VARCHAR(100) NOT NULL,
       user_email VARCHAR(160),
       rating_input VARCHAR(120) NOT NULL,
-      improvement_notes TEXT NOT NULL,
+      improvement_notes TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE tcc_avaliacoes ALTER COLUMN improvement_notes SET DEFAULT '';
   `);
 
   console.log('⭐ Tabela de avaliações (tcc_avaliacoes) verificada.');
 }
 
-async function saveFeedback({
+async function saveRating({
   discordUserId,
   discordUsername,
   userEmail,
-  ratingInput,
-  improvementNotes
+  ratingLabel
 }) {
-  const cleanRating = String(ratingInput || '').trim();
-  const cleanNotes = String(improvementNotes || '').trim();
-
-  if (!cleanRating) {
-    return { ok: false, message: 'Informe uma avaliação (emoji, escrita ou nota de 1 a 10).' };
-  }
-
-  if (!cleanNotes) {
-    return { ok: false, message: 'Escreva o que precisa melhorar ou uma observação.' };
-  }
-
   const res = await db.query(
     `INSERT INTO tcc_avaliacoes
       (discord_user_id, discord_username, user_email, rating_input, improvement_notes)
-     VALUES ($1, $2, $3, $4, $5)
+     VALUES ($1, $2, $3, $4, '')
      RETURNING id, created_at`,
     [
       String(discordUserId),
       String(discordUsername || 'desconhecido').slice(0, 100),
       userEmail ? String(userEmail).trim().toLowerCase().slice(0, 160) : null,
-      cleanRating.slice(0, 120),
-      cleanNotes.slice(0, 2000)
+      String(ratingLabel).slice(0, 120)
     ]
   );
 
   return {
     ok: true,
-    id: res.rows[0].id,
-    message: 'Avaliação registada com sucesso! Obrigado pelo feedback.'
+    id: res.rows[0].id
+  };
+}
+
+async function updateImprovementNotes({ feedbackId, discordUserId, improvementNotes }) {
+  const cleanNotes = String(improvementNotes || '').trim();
+  if (!cleanNotes) {
+    return { ok: false, message: 'Escreva o que precisa melhorar ou uma observação.' };
+  }
+
+  const res = await db.query(
+    `UPDATE tcc_avaliacoes
+     SET improvement_notes = $1
+     WHERE id = $2 AND discord_user_id = $3
+     RETURNING id, rating_input`,
+    [cleanNotes.slice(0, 2000), Number(feedbackId), String(discordUserId)]
+  );
+
+  if (res.rowCount === 0) {
+    return { ok: false, message: 'Avaliação não encontrada para atualizar.' };
+  }
+
+  return {
+    ok: true,
+    ratingInput: res.rows[0].rating_input,
+    message: 'Avaliação e sugestões enviadas com sucesso! Muito obrigado.'
   };
 }
 
@@ -73,6 +85,7 @@ async function listFeedback(limit = 15) {
 
 module.exports = {
   initFeedback,
-  saveFeedback,
+  saveRating,
+  updateImprovementNotes,
   listFeedback
 };
