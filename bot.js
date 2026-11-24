@@ -8,7 +8,6 @@ const {
   EmbedBuilder,
   AttachmentBuilder,
   ActionRowBuilder,
-  ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
   REST,
@@ -99,11 +98,11 @@ function getSlashCommands() {
   return [
     new SlashCommandBuilder()
       .setName('cadastrar')
-      .setDescription('Criar conta com e-mail e senha para usar o bot'),
+      .setDescription('Criar conta com e-mail e senha de 8 números'),
 
     new SlashCommandBuilder()
       .setName('login')
-      .setDescription('Entrar na sua conta com e-mail e senha'),
+      .setDescription('Entrar na sua conta com e-mail e senha de 8 números'),
 
     new SlashCommandBuilder()
       .setName('logout')
@@ -120,10 +119,6 @@ function getSlashCommands() {
     new SlashCommandBuilder()
       .setName('presenca')
       .setDescription('Registrar presença'),
-
-    new SlashCommandBuilder()
-      .setName('chamada')
-      .setDescription('Abrir o sistema atual de chamada'),
 
     new SlashCommandBuilder()
       .setName('iniciar_tcc')
@@ -779,11 +774,12 @@ client.on(Events.InteractionCreate, async interaction => {
 
     const passwordInput = new TextInputBuilder()
       .setCustomId('auth_password')
-      .setLabel('Crie uma palavra-passe / senha (mín. 4)')
+      .setLabel('Senha com 8 números (ex.: 12345678)')
       .setStyle(TextInputStyle.Short)
-      .setMinLength(4)
-      .setMaxLength(100)
-      .setRequired(true);
+      .setMinLength(8)
+      .setMaxLength(8)
+      .setRequired(true)
+      .setPlaceholder('8 dígitos numéricos');
 
     modal.addComponents(
       new ActionRowBuilder().addComponents(emailInput),
@@ -815,11 +811,12 @@ client.on(Events.InteractionCreate, async interaction => {
 
     const passwordInput = new TextInputBuilder()
       .setCustomId('auth_password')
-      .setLabel('A sua palavra-passe / senha')
+      .setLabel('A sua senha de 8 números')
       .setStyle(TextInputStyle.Short)
-      .setMinLength(4)
-      .setMaxLength(100)
-      .setRequired(true);
+      .setMinLength(8)
+      .setMaxLength(8)
+      .setRequired(true)
+      .setPlaceholder('8 dígitos numéricos');
 
     modal.addComponents(
       new ActionRowBuilder().addComponents(emailInput),
@@ -1084,60 +1081,6 @@ client.on(Events.InteractionCreate, async interaction => {
     );
 
     return interaction.showModal(modal);
-  }
-
-  if (interaction.commandName === 'chamada') {
-    if (!interaction.inGuild()) {
-      return interaction.reply({
-        content: '⚠️ Este comando só pode ser usado dentro do servidor.',
-        flags: MessageFlags.Ephemeral
-      });
-    }
-
-    const roles = interaction.member?.roles?.cache;
-    const alunoRoleId = process.env.ALUNO_ROLE_ID;
-    const professorRoleId = process.env.PROFESSOR_ROLE_ID;
-
-    if (alunoRoleId && professorRoleId && roles) {
-      const isAluno = roles.has(alunoRoleId);
-      const isProfessor = roles.has(professorRoleId);
-      const isAdmin = interaction.memberPermissions?.has('Administrator');
-
-      if (!isAluno && !isProfessor && !isAdmin) {
-        return interaction.reply({
-          content: '⛔ Apenas aluno, professor ou admin podem usar este comando.',
-          flags: MessageFlags.Ephemeral
-        });
-      }
-    }
-
-    const appBaseUrl = (
-      process.env.APP_URL || 'http://localhost:3000'
-    ).replace(/\/$/, '');
-
-    const chamadaUrl = `${appBaseUrl}/login`;
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setLabel('Abrir Sistema de Chamada')
-        .setStyle(ButtonStyle.Link)
-        .setURL(chamadaUrl)
-    );
-
-    const embed = new EmbedBuilder()
-      .setTitle('📋 Sistema de Chamada')
-      .setDescription(
-        'Clique no botão abaixo para entrar no sistema atual de chamadas.'
-      )
-      .setColor('#5865F2')
-      .setFooter({ text: 'Mercury Class' })
-      .setTimestamp();
-
-    return interaction.reply({
-      embeds: [embed],
-      components: [row],
-      flags: MessageFlags.Ephemeral
-    });
   }
 
   if (interaction.commandName === 'presenca') {
