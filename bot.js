@@ -22,6 +22,7 @@ const db = require('./database');
 const stats = require('./stats');
 const tccProjects = require('./tcc-projects');
 const auth = require('./auth');
+const feedback = require('./feedback');
 const { gerarRascunhoComPesquisa } = require('./ia-tcc');
 
 const http = require('http');
@@ -111,6 +112,14 @@ function getSlashCommands() {
     new SlashCommandBuilder()
       .setName('manter_conectado')
       .setDescription('Escolher por múltipla escolha (Sim/Não) se deseja manter conectado'),
+
+    new SlashCommandBuilder()
+      .setName('avaliar')
+      .setDescription('Avaliar o bot (emoji, escrita ou 1 a 10) e enviar o que precisa melhorar'),
+
+    new SlashCommandBuilder()
+      .setName('avaliacoes_tcc')
+      .setDescription('Consultar avaliações recebidas (restrito ao administrador)'),
 
     new SlashCommandBuilder()
       .setName('usuarios_tcc')
@@ -218,6 +227,10 @@ client.once(Events.ClientReady, () => {
 
   auth.initAuth().catch(error => {
     console.error('❌ Falha ao preparar tabela de utilizadores:', error);
+  });
+
+  feedback.initFeedback().catch(error => {
+    console.error('❌ Falha ao preparar tabela de avaliações:', error);
   });
 
   stats.initStats().catch(error => {
@@ -343,6 +356,43 @@ client.on(Events.InteractionCreate, async interaction => {
   // ====================================================
 
   if (interaction.isModalSubmit()) {
+
+    if (interaction.customId === 'avaliar_modal') {
+      const ratingInput = interaction.fields.getTextInputValue('feedback_rating').trim();
+      const improvementNotes = interaction.fields.getTextInputValue('feedback_improvements').trim();
+
+      try {
+        const savedLogin = await auth.getSavedLogin(interaction.user.id).catch(() => null);
+        const result = await feedback.saveFeedback({
+          discordUserId: interaction.user.id,
+          discordUsername: interaction.user.username,
+          userEmail: savedLogin?.email || savedLogin?.saved_email || null,
+          ratingInput,
+          improvementNotes
+        });
+
+        if (!result.ok) {
+          return interaction.reply({
+            content: `⚠️ ${result.message}`,
+            flags: MessageFlags.Ephemeral
+          });
+        }
+
+        return interaction.reply({
+          content:
+            `✅ ${result.message}\n` +
+            `• Avaliação: **${ratingInput}**\n` +
+            '• Sugestões registadas para análise.',
+          flags: MessageFlags.Ephemeral
+        });
+      } catch (error) {
+        console.error('❌ Erro ao guardar avaliação:', describeError(error));
+        return interaction.reply({
+          content: '❌ Não foi possível guardar a sua avaliação agora. Tente novamente.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+    }
 
     if (interaction.customId === 'cadastrar_modal') {
       const emailInput = interaction.fields.getTextInputValue('auth_email').trim();
@@ -757,6 +807,82 @@ client.on(Events.InteractionCreate, async interaction => {
   }).catch(error => {
     console.error('⚠️ Falha ao registar uso do comando:', describeError(error));
   });
+
+  if (interaction.commandName === 'avaliar') {
+    const modal = new ModalBuilder()
+      .setCustomId('avaliar_modal')
+      .setTitle('Avaliação • Assistente TCC');
+
+    const ratingInput = new TextInputBuilder()
+      .setCustomId('feedback_rating')
+      .setLabel('O quanto gostou? (emoji, escrita ou 1 a 10)')
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(1)
+      .setMaxLength(120)
+      .setRequired(true)
+      .setPlaceholder('Ex.: 10, 8/10, 🤩 ou excelente');
+
+    const improvementInput = new TextInputBuilder()
+      .setCustomId('feedback_improvements')
+      .setLabel('O que precisa melhorar?')
+      .setStyle(TextInputStyle.Paragraph)
+      .setMinLength(2)
+      .setMaxLength(2000)
+      .setRequired(true)
+      .setPlaceholder('Escreva suas sugestões ou o que podemos melhorar');
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(ratingInput),
+      new ActionRowBuilder().addComponents(improvementInput)
+    );
+
+    return interaction.showModal(modal);
+  }
+
+  if (interaction.commandName === 'avaliacoes_tcc') {
+    if (!process.env.OWNER_USER_ID || String(interaction.user.id) !== String(process.env.OWNER_USER_ID)) {
+      return interaction.reply({
+        content: '🔒 Este comando é exclusivo do administrador do bot.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    try {
+      const items = await feedback.listFeedback(15);
+      if (!items.length) {
+        return interaction.reply({
+          content: '⭐ Ainda não existem avaliações registadas.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      const linhas = items.map((fb, idx) => {
+        const who = fb.user_email ? `${fb.user_email} (@${fb.discord_username})` : `@${fb.discord_username}`;
+        return (
+          `${idx + 1}. **Avaliação:** ${fb.rating_input} — *${who}*\n` +
+          `   **Melhorar:** ${fb.improvement_notes}`
+        );
+      });
+
+      const embed = new EmbedBuilder()
+        .setTitle('⭐ Avaliações Recebidas (Apenas Administrador)')
+        .setDescription(linhas.join('\n\n').slice(0, 4000))
+        .setColor('#5865F2')
+        .setFooter({ text: `Exibindo até ${items.length} avaliação(ões) mais recentes` })
+        .setTimestamp();
+
+      return interaction.reply({
+        embeds: [embed],
+        flags: MessageFlags.Ephemeral
+      });
+    } catch (error) {
+      console.error('❌ Erro ao consultar avaliações:', describeError(error));
+      return interaction.reply({
+        content: '❌ Erro ao consultar as avaliações.',
+        flags: MessageFlags.Ephemeral
+      });
+    }
+  }
 
   if (interaction.commandName === 'cadastrar') {
     const modal = new ModalBuilder()
