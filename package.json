@@ -1,7 +1,7 @@
 {
   "name": "assistente-tcc-abnt",
-"version": "1.0.0",
-"description": "Bot Discord com inteligência artificial para auxiliar na elaboração e organização de Trabalhos de Conclusão de Curso conforme as normas ABNT.",
+  "version": "1.0.0",
+  "description": "Bot Discord com inteligência artificial para auxiliar na elaboração e organização de Trabalhos de Conclusão de Curso conforme as normas ABNT.",
   "main": "bot.js",
   "type": "commonjs",
   "scripts": {
@@ -15,6 +15,7 @@
     "@google/genai": "^2.31.0",
     "discord.js": "^14.14.1",
     "docx": "^9.5.1",
+    "pptxgenjs": "^3.12.0",
     "dotenv": "^16.4.5",
     "pg": "^8.12.0"
   }
