@@ -1,4 +1,5 @@
 require('dotenv').config();
+
 const {
   Client,
   GatewayIntentBits,
@@ -14,16 +15,20 @@ const {
   TextInputBuilder,
   TextInputStyle
 } = require('discord.js');
+
 const db = require('./database');
 const stats = require('./stats');
 const tccProjects = require('./tcc-projects');
 const { gerarRascunhoComPesquisa } = require('./ia-tcc');
 
+const http = require('http');
+
 console.log('🚀 Iniciando bot Discord...');
 
 const BOT_TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN;
+
 if (!BOT_TOKEN) {
-  console.error('❌ TOKEN/DISCORD_TOKEN não configurado. O bot não pode iniciar.');
+  console.error('❌ TOKEN/DISCORD_TOKEN não configurado.');
   process.exit(1);
 }
 
@@ -31,15 +36,12 @@ if (!process.env.DATABASE_URL) {
   console.warn('⚠️ DATABASE_URL não configurado. O comando /presenca pode falhar.');
 }
 
-// 🔥 cria cliente
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
-// 🧠 cooldown em memória
 const cooldown = new Map();
 
-// Exibe detalhes úteis de erros do Discord/Node nos logs do Render.
 function describeError(error) {
   return {
     message: error?.message || String(error),
@@ -49,6 +51,10 @@ function describeError(error) {
     url: error?.url
   };
 }
+
+// ======================================================
+// COMANDOS SLASH
+// ======================================================
 
 function getSlashCommands() {
   return [
@@ -83,7 +89,7 @@ function getSlashCommands() {
           .setDescription('Objetivo principal do TCC')
           .setRequired(false)
       )
-  ].map(cmd => cmd.toJSON());
+  ].map(command => command.toJSON());
 }
 
 async function syncSlashCommands(client) {
@@ -92,7 +98,7 @@ async function syncSlashCommands(client) {
   const appId = process.env.CLIENT_ID || client.user?.id;
 
   if (!appId) {
-    console.warn('⚠️ CLIENT_ID não encontrado; não foi possível sincronizar slash commands.');
+    console.warn('⚠️ CLIENT_ID não encontrado. Não foi possível sincronizar os comandos.');
     return;
   }
 
@@ -102,51 +108,123 @@ async function syncSlashCommands(client) {
         Routes.applicationGuildCommands(appId, process.env.GUILD_ID),
         { body: commands }
       );
+
       console.log(`✅ Slash commands sincronizados na guild ${process.env.GUILD_ID}.`);
     } else {
       await rest.put(
         Routes.applicationCommands(appId),
         { body: commands }
       );
-      console.log('✅ Slash commands globais sincronizados (pode levar alguns minutos para aparecer).');
+
+      console.log('✅ Slash commands globais sincronizados.');
     }
-  } catch (err) {
-    console.error('❌ Erro ao sincronizar slash commands:', err);
+  } catch (error) {
+    console.error('❌ Erro ao sincronizar slash commands:', describeError(error));
   }
 }
 
+// ======================================================
+// INICIALIZAÇÃO
+// ======================================================
+
 client.once(Events.ClientReady, () => {
   console.log(`🤖 Bot logado como ${client.user.tag}`);
+
   syncSlashCommands(client);
-  stats.initStats().catch(error => console.error('❌ Falha ao preparar estatísticas:', error.message));
-  tccProjects.initTccProjects().catch(error => console.error('❌ Falha ao preparar projetos de TCC:', error.message));
+
+  stats.initStats().catch(error => {
+    console.error('❌ Falha ao preparar estatísticas:', error);
+  });
+
+  tccProjects.initTccProjects().catch(error => {
+    console.error('❌ Falha ao preparar projetos de TCC:', error);
+  });
 });
 
-client.on('error', (error) => {
+client.on('error', error => {
   console.error('❌ Erro no cliente Discord:', error);
 });
 
-process.on('unhandledRejection', (reason) => {
+process.on('unhandledRejection', reason => {
   console.error('❌ Unhandled Rejection:', reason);
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', error => {
   console.error('❌ Uncaught Exception:', error);
 });
 
+// ======================================================
+// EMOJIS DAS MATÉRIAS
+// ======================================================
+
 function getEmojiForClass(className) {
   const name = className.toLowerCase();
-  if (name.includes('matematica') || name.includes('cálculo') || name.includes('calculo') || name.includes('math')) return '🧮';
-  if (name.includes('fisica') || name.includes('física') || name.includes('phys')) return '⏳';
-  if (name.includes('quimica') || name.includes('química') || name.includes('chem')) return '🧪';
+
+  if (
+    name.includes('matematica') ||
+    name.includes('cálculo') ||
+    name.includes('calculo') ||
+    name.includes('math')
+  ) return '🧮';
+
+  if (
+    name.includes('fisica') ||
+    name.includes('física') ||
+    name.includes('phys')
+  ) return '⏳';
+
+  if (
+    name.includes('quimica') ||
+    name.includes('química') ||
+    name.includes('chem')
+  ) return '🧪';
+
   if (name.includes('biolo')) return '🧬';
-  if (name.includes('program') || name.includes('web') || name.includes('comput') || name.includes('dev')) return '💻';
+
+  if (
+    name.includes('program') ||
+    name.includes('web') ||
+    name.includes('comput') ||
+    name.includes('dev')
+  ) return '💻';
+
   if (name.includes('historia') || name.includes('história')) return '📜';
-  if (name.includes('portugues') || name.includes('português') || name.includes('literatura') || name.includes('redacao')) return '📚';
+
+  if (
+    name.includes('portugues') ||
+    name.includes('português') ||
+    name.includes('literatura') ||
+    name.includes('redacao')
+  ) return '📚';
+
   if (name.includes('geografia')) return '🗺️';
-  if (name.includes('ingles') || name.includes('inglês') || name.includes('english')) return '🇬🇧';
+
+  if (
+    name.includes('ingles') ||
+    name.includes('inglês') ||
+    name.includes('english')
+  ) return '🇬🇧';
+
   return '🏫';
 }
+
+// ======================================================
+// EVENTO PRINCIPAL DE INTERAÇÕES DO DISCORD
+// IMPORTANTE: esta função precisa ser async para permitir await.
+// ======================================================
+
+client.on(Events.InteractionCreate, async interaction => {
+
+  // ====================================================
+  // 1. ENVIO DE FORMULÁRIOS (MODALS)
+  // ====================================================
+
+  if (interaction.isModalSubmit()) {
+
+    // ----------------------------------------------
+    // FORMULÁRIO DE INÍCIO DO TCC
+    // ----------------------------------------------
+
     if (interaction.customId === 'iniciar_tcc_modal') {
       const nomeAluno = interaction.fields.getTextInputValue('tcc_aluno').trim();
       const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
@@ -155,16 +233,19 @@ function getEmojiForClass(className) {
       const titulo = interaction.fields.getTextInputValue('tcc_titulo').trim();
 
       const totalLabel = `iniciar_tcc_${interaction.user.id}_${Date.now()}`;
+
       console.time(totalLabel);
 
       try {
-        // Reconhece a interação imediatamente para evitar que o Discord a expire.
+        console.log(`📝 [${totalLabel}] Formulário recebido.`);
+
         const deferStart = Date.now();
-        console.log(`📝 [${totalLabel}] Recebido formulário de TCC.`);
 
         await interaction.deferReply({ ephemeral: true });
 
-        console.log(`⏱️ [${totalLabel}] deferReply: ${Date.now() - deferStart}ms`);
+        console.log(
+          `⏱️ [${totalLabel}] deferReply: ${Date.now() - deferStart}ms`
+        );
 
         const project = {
           userId: interaction.user.id,
@@ -177,7 +258,7 @@ function getEmojiForClass(className) {
           title: titulo
         };
 
-        // Salva o projeto e gera o Word em paralelo.
+        // Salva o projeto e gera o documento Word em paralelo.
         console.time(`${totalLabel}_db_e_docx`);
 
         const [saved, documentBuffer] = await Promise.all([
@@ -186,9 +267,13 @@ function getEmojiForClass(className) {
         ]);
 
         console.timeEnd(`${totalLabel}_db_e_docx`);
-        console.log(`📦 [${totalLabel}] Projeto salvo (ID: ${saved.id}); Word gerado (${documentBuffer?.length || 0} bytes).`);
 
-        // Estatísticas não podem bloquear a resposta principal.
+        console.log(
+          `📦 [${totalLabel}] Projeto salvo: ${saved.id}. ` +
+          `Documento gerado: ${documentBuffer?.length || 0} bytes.`
+        );
+
+        // Estatísticas não devem bloquear a entrega do documento.
         Promise.all([
           stats.recordEvent({
             userId: interaction.user.id,
@@ -196,23 +281,28 @@ function getEmojiForClass(className) {
             guildId: interaction.guildId,
             eventType: 'tcc_started'
           }),
+
           stats.recordEvent({
             userId: interaction.user.id,
             username: interaction.user.username,
             guildId: interaction.guildId,
             eventType: 'document_generated'
           })
-        ]).catch(err => {
-          console.error(`⚠️ [${totalLabel}] Falha ao registrar estatísticas:`, describeError(err));
+        ]).catch(error => {
+          console.error(
+            `⚠️ [${totalLabel}] Erro nas estatísticas:`,
+            describeError(error)
+          );
         });
 
-        // Monta o resumo que será enviado como primeira resposta.
-        console.log(`🧩 [${totalLabel}] Montando confirmação do projeto.`);
-
+        // Monta a confirmação do projeto.
         const resumo = new EmbedBuilder()
           .setTitle('📚 Projeto de TCC salvo e documento criado')
           .setDescription(
-            `Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) e gerei um modelo Word inicial para você revisar. Ele contém capa, folha de rosto e seções estruturais; ainda não é um TCC pesquisado ou concluído.`
+            `Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) ` +
+            'e gerei um modelo Word inicial para você revisar. ' +
+            'Ele contém capa, folha de rosto e seções estruturais; ' +
+            'ainda não é um TCC pesquisado ou concluído.'
           )
           .addFields(
             { name: 'Aluno(a)', value: nomeAluno, inline: false },
@@ -226,8 +316,9 @@ function getEmojiForClass(className) {
             text: 'Assistente de TCC • Modelo inicial para revisão'
           });
 
-        // Primeiro confirma que o projeto foi salvo.
+        // Primeiro envia a confirmação.
         const respostaStart = Date.now();
+
         console.log(`📨 [${totalLabel}] Enviando confirmação ao Discord...`);
 
         await interaction.editReply({
@@ -235,11 +326,15 @@ function getEmojiForClass(className) {
           content: ''
         });
 
-        console.log(`✅ [${totalLabel}] resposta_texto concluída em ${Date.now() - respostaStart}ms.`);
+        console.log(
+          `✅ [${totalLabel}] Confirmação enviada em ` +
+          `${Date.now() - respostaStart}ms.`
+        );
 
-        // Depois envia o arquivo Word separadamente.
+        // Depois envia o arquivo Word.
         const envioStart = Date.now();
-        console.log(`📤 [${totalLabel}] Enviando arquivo Word ao Discord...`);
+
+        console.log(`📤 [${totalLabel}] Enviando documento Word...`);
 
         try {
           await interaction.followUp({
@@ -253,17 +348,29 @@ function getEmojiForClass(className) {
             ephemeral: true
           });
 
-          console.log(`✅ [${totalLabel}] envio_discord concluído em ${Date.now() - envioStart}ms.`);
+          console.log(
+            `✅ [${totalLabel}] Documento enviado em ` +
+            `${Date.now() - envioStart}ms.`
+          );
+
         } catch (uploadError) {
-          console.error(`❌ [${totalLabel}] Erro ao enviar o arquivo Word:`, describeError(uploadError));
+          console.error(
+            `❌ [${totalLabel}] Erro ao enviar o Word:`,
+            describeError(uploadError)
+          );
 
           try {
             await interaction.editReply({
-              content: '✅ Seu projeto foi salvo, mas o Discord não conseguiu entregar o arquivo Word. Tente novamente ou avise a equipe.',
+              content:
+                '✅ Seu projeto foi salvo, mas o Discord não conseguiu ' +
+                'entregar o arquivo Word. Tente novamente ou avise a equipe.',
               embeds: []
             });
           } catch (replyError) {
-            console.error(`❌ [${totalLabel}] Também não foi possível atualizar a confirmação:`, describeError(replyError));
+            console.error(
+              `❌ [${totalLabel}] Erro ao atualizar a confirmação:`,
+              describeError(replyError)
+            );
           }
 
           console.timeEnd(totalLabel);
@@ -271,15 +378,24 @@ function getEmojiForClass(className) {
         }
 
         console.timeEnd(totalLabel);
+
         console.log(`🎉 [${totalLabel}] TCC concluído com sucesso.`);
+
         return;
+
       } catch (error) {
-        console.error(`❌ [${totalLabel}] Falha ao iniciar TCC:`, describeError(error), error);
+        console.error(
+          `❌ [${totalLabel}] Falha ao iniciar TCC:`,
+          describeError(error),
+          error
+        );
 
         try {
           if (interaction.deferred || interaction.replied) {
             await interaction.editReply({
-              content: '❌ Não consegui concluir a criação do projeto ou do Word. O erro foi registrado nos Logs do Render.',
+              content:
+                '❌ Não consegui concluir a criação do projeto ou do Word. ' +
+                'O erro foi registrado nos Logs do Render.',
               embeds: []
             });
           } else {
@@ -289,7 +405,10 @@ function getEmojiForClass(className) {
             });
           }
         } catch (replyError) {
-          console.error(`❌ [${totalLabel}] Não foi possível enviar a mensagem de erro ao Discord:`, describeError(replyError));
+          console.error(
+            `❌ [${totalLabel}] Não foi possível enviar a mensagem de erro:`,
+            describeError(replyError)
+          );
         }
 
         console.timeEnd(totalLabel);
@@ -297,24 +416,36 @@ function getEmojiForClass(className) {
       }
     }
 
+    // ----------------------------------------------
+    // FORMULÁRIO DE VINCULAÇÃO DE CONTA
+    // ----------------------------------------------
+
     if (interaction.customId === 'vincular_modal') {
-      const realName = interaction.fields.getTextInputValue('real_name_input').trim();
+      const realName = interaction.fields
+        .getTextInputValue('real_name_input')
+        .trim();
+
       const username = interaction.user.username.toLowerCase();
 
       try {
         await db.query(
           `INSERT INTO discord_mappings (discord_username, real_name)
            VALUES ($1, $2)
-           ON CONFLICT (discord_username) DO UPDATE SET real_name = EXCLUDED.real_name`,
+           ON CONFLICT (discord_username)
+           DO UPDATE SET real_name = EXCLUDED.real_name`,
           [username, realName]
         );
 
         await interaction.reply({
-          content: `✅ Conta vinculada com sucesso a **${realName}**!\nDigite o comando \`/presenca\` novamente para registrar sua presença.`,
+          content:
+            `✅ Conta vinculada com sucesso a **${realName}**!\n` +
+            'Digite o comando `/presenca` novamente para registrar sua presença.',
           ephemeral: true
         });
-      } catch (err) {
-        console.error(err);
+
+      } catch (error) {
+        console.error('Erro ao vincular conta:', error);
+
         await interaction.reply({
           content: '❌ Erro ao vincular sua conta.',
           ephemeral: true
@@ -324,10 +455,16 @@ function getEmojiForClass(className) {
 
     return;
   }
-  // 2. Button Handler
+
+  // ====================================================
+  // 2. BOTÕES DE PRESENÇA
+  // ====================================================
+
   if (interaction.isButton()) {
+
     if (interaction.customId.startsWith('presenca_aula_')) {
       const parts = interaction.customId.split('_');
+
       const sessionId = parseInt(parts[2], 10);
       const classId = parseInt(parts[3], 10);
 
@@ -337,47 +474,70 @@ function getEmojiForClass(className) {
 
       try {
         const mappingRes = await db.query(
-          `SELECT real_name FROM discord_mappings WHERE LOWER(discord_username) = LOWER($1)`,
+          `SELECT real_name
+           FROM discord_mappings
+           WHERE LOWER(discord_username) = LOWER($1)`,
           [username]
         );
+
         if (mappingRes.rowCount === 0) {
           return interaction.reply({
-            content: '⚠️ Sua conta ainda não está vinculada. Por favor, digite `/presenca` para vincular primeiro.',
+            content:
+              '⚠️ Sua conta ainda não está vinculada. ' +
+              'Digite `/presenca` para vincular primeiro.',
             ephemeral: true
           });
         }
 
         const mappedName = mappingRes.rows[0].real_name;
 
-        const classRes = await db.query('SELECT name FROM classes WHERE id = $1', [classId]);
-        const className = classRes.rowCount > 0 ? classRes.rows[0].name : 'Aula';
+        const classRes = await db.query(
+          'SELECT name FROM classes WHERE id = $1',
+          [classId]
+        );
+
+        const className = classRes.rowCount > 0
+          ? classRes.rows[0].name
+          : 'Aula';
 
         const checkAtt = await db.query(
-          `SELECT 1 FROM attendances WHERE class_session_id = $1 AND student_name = $2`,
+          `SELECT 1
+           FROM attendances
+           WHERE class_session_id = $1
+           AND student_name = $2`,
           [sessionId, mappedName]
         );
+
         if (checkAtt.rowCount === 0) {
           await db.query(
-            `INSERT INTO attendances (class_session_id, class_id, student_name, login_at, student_id) VALUES ($1, $2, $3, NOW(), $4)`,
+            `INSERT INTO attendances
+             (class_session_id, class_id, student_name, login_at, student_id)
+             VALUES ($1, $2, $3, NOW(), $4)`,
             [sessionId, classId, mappedName, userId]
           );
         }
 
-        // 💾 salva presença geral na tabela Discord
         await db.query(
-          `INSERT INTO presencas (user_id, username, guild_id, data) VALUES ($1, $2, $3, NOW())`,
+          `INSERT INTO presencas (user_id, username, guild_id, data)
+           VALUES ($1, $2, $3, NOW())`,
           [userId, username, guildId]
         );
 
         const total = await db.query(
-          `SELECT COUNT(*) as total FROM presencas WHERE user_id = $1 AND guild_id = $2`,
+          `SELECT COUNT(*) AS total
+           FROM presencas
+           WHERE user_id = $1 AND guild_id = $2`,
           [userId, guildId]
         );
+
         const totalPresencas = total.rows[0].total;
 
         const embed = new EmbedBuilder()
           .setTitle('✅ Presença Confirmada!')
-          .setDescription(`Olá, **${mappedName}**!\nSua presença foi registrada com sucesso na matéria: **${className}**!`)
+          .setDescription(
+            `Olá, **${mappedName}**!\n` +
+            `Sua presença foi registrada na matéria: **${className}**!`
+          )
           .addFields(
             { name: '📅 Matéria', value: className, inline: true },
             { name: '📊 Total no Discord', value: String(totalPresencas), inline: true }
@@ -388,24 +548,31 @@ function getEmojiForClass(className) {
 
         await interaction.update({
           embeds: [embed],
-          components: [],
-          ephemeral: true
+          components: []
         });
+
       } catch (error) {
         console.error('Erro ao clicar no botão de presença:', error);
-        await interaction.reply({
-          content: '❌ Erro ao registrar presença na matéria selecionada.',
-          ephemeral: true
-        });
+
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: '❌ Erro ao registrar presença na matéria selecionada.',
+            ephemeral: true
+          });
+        }
       }
-    } else if (interaction.commandName !== 'chamada') {
-      // Allow other buttons like standard check-in links to proceed
     }
+
+    return;
   }
+
+  // ====================================================
+  // 3. COMANDOS SLASH
+  // ====================================================
 
   if (!interaction.isChatInputCommand()) return;
 
-  // Registra cada uso de comando. Falha no registro não deve impedir o comando principal.
+  // Registro de uso dos comandos sem bloquear a execução.
   stats.recordEvent({
     userId: interaction.user.id,
     username: interaction.user.username,
@@ -413,10 +580,16 @@ function getEmojiForClass(className) {
     eventType: 'command',
     commandName: interaction.commandName
   }).catch(error => {
-    console.error('⚠️ Falha ao registrar uso do comando:', describeError(error));
+    console.error(
+      '⚠️ Falha ao registrar uso do comando:',
+      describeError(error)
+    );
   });
 
-  // Geração de rascunho acadêmico com pesquisa de fontes
+  // ====================================================
+  // COMANDO /RASCUNHO_TCC
+  // ====================================================
+
   if (interaction.commandName === 'rascunho_tcc') {
     const tema = interaction.options.getString('tema');
     const objetivo = interaction.options.getString('objetivo') || '';
@@ -445,7 +618,7 @@ function getEmojiForClass(className) {
       return interaction.editReply({
         content:
           '📚 **Seu rascunho acadêmico está pronto!**\n' +
-          `🔍 Foram encontradas ${resultado.fontes.length} fontes acadêmicas.\n` +
+          `🔍 Foram encontradas ${(resultado.fontes || []).length} fontes acadêmicas.\n` +
           'Confira os títulos, autores e links; leia as fontes antes de utilizar as informações no TCC e revise o texto com seu orientador.',
         files: [
           {
@@ -454,6 +627,7 @@ function getEmojiForClass(className) {
           }
         ]
       });
+
     } catch (error) {
       console.error('Erro ao gerar rascunho com pesquisa acadêmica:', error);
 
@@ -465,45 +639,80 @@ function getEmojiForClass(className) {
     }
   }
 
-  // Estatísticas: visíveis apenas para administradores do servidor ou usuários com o cargo configurado.
+  // ====================================================
+  // COMANDO /ESTATISTICAS
+  // ====================================================
+
   if (interaction.commandName === 'estatisticas') {
     const allowedRoleId = process.env.STATS_ROLE_ID;
+
     const isAdmin = interaction.memberPermissions?.has('Administrator');
-    const hasAllowedRole = Boolean(allowedRoleId && interaction.member?.roles?.cache?.has(allowedRoleId));
+
+    const hasAllowedRole = Boolean(
+      allowedRoleId &&
+      interaction.member?.roles?.cache?.has(allowedRoleId)
+    );
+
     if (!isAdmin && !hasAllowedRole) {
-      return interaction.reply({ content: '🔒 Este comando é restrito à equipe autorizada.', ephemeral: true });
+      return interaction.reply({
+        content: '🔒 Este comando é restrito à equipe autorizada.',
+        ephemeral: true
+      });
     }
 
     try {
       const data = await stats.getSummary();
-      const t = data.totals;
+      const totals = data.totals;
+
       const bars = data.commands.length
-        ? data.commands.slice(0, 5).map(item => `**/${item.command_name}** — ${item.total} uso(s)`).join('\n')
+        ? data.commands
+            .slice(0, 5)
+            .map(item => `**/${item.command_name}** — ${item.total} uso(s)`)
+            .join('\n')
         : 'Ainda não há comandos registrados.';
+
       const embed = new EmbedBuilder()
         .setTitle('📊 Estatísticas do Bot TCC')
-        .setDescription('Indicadores calculados a partir dos eventos registrados desde a ativação das estatísticas.')
+        .setDescription(
+          'Indicadores calculados a partir dos eventos registrados desde a ativação das estatísticas.'
+        )
         .addFields(
-          { name: '👥 Usuários únicos', value: String(t.unique_users), inline: true },
-          { name: '📅 Ativos nas últimas 24h', value: String(t.active_today), inline: true },
-          { name: '🗓️ Ativos em 7 dias', value: String(t.active_week), inline: true },
-          { name: '📈 Ativos em 30 dias', value: String(t.active_month), inline: true },
-          { name: '📚 TCCs iniciados', value: String(t.tccs_started), inline: true },
-          { name: '📄 Documentos gerados', value: String(t.documents_generated), inline: true },
+          { name: '👥 Usuários únicos', value: String(totals.unique_users), inline: true },
+          { name: '📅 Ativos nas últimas 24h', value: String(totals.active_today), inline: true },
+          { name: '🗓️ Ativos em 7 dias', value: String(totals.active_week), inline: true },
+          { name: '📈 Ativos em 30 dias', value: String(totals.active_month), inline: true },
+          { name: '📚 TCCs iniciados', value: String(totals.tccs_started), inline: true },
+          { name: '📄 Documentos gerados', value: String(totals.documents_generated), inline: true },
           { name: '⌨️ Comandos mais usados', value: bars, inline: false },
-          { name: '🌐 Painel web', value: 'Consulte `/admin/tcc-stats` no site quando o servidor web estiver configurado.', inline: false }
+          {
+            name: '🌐 Painel web',
+            value: 'Consulte `/admin/tcc-stats` no site quando o servidor web estiver configurado.',
+            inline: false
+          }
         )
         .setColor('#5865F2')
         .setTimestamp();
-      return interaction.reply({ embeds: [embed], ephemeral: true });
-    } catch (error) {
-      console.error('Erro ao montar estatísticas:', error.message);
+
       return interaction.reply({
-        content: 'Não consegui consultar as estatísticas. Confira se o PostgreSQL está configurado e se o bot já inicializou as tabelas.',
+        embeds: [embed],
+        ephemeral: true
+      });
+
+    } catch (error) {
+      console.error('Erro ao montar estatísticas:', error);
+
+      return interaction.reply({
+        content:
+          'Não consegui consultar as estatísticas. Confira se o PostgreSQL está configurado e se o bot já inicializou as tabelas.',
         ephemeral: true
       });
     }
   }
+
+  // ====================================================
+  // COMANDO /INICIAR_TCC
+  // ====================================================
+
   if (interaction.commandName === 'iniciar_tcc') {
     const modal = new ModalBuilder()
       .setCustomId('iniciar_tcc_modal')
@@ -560,6 +769,10 @@ function getEmojiForClass(className) {
     return interaction.showModal(modal);
   }
 
+  // ====================================================
+  // COMANDO /CHAMADA
+  // ====================================================
+
   if (interaction.commandName === 'chamada') {
     if (!interaction.inGuild()) {
       return interaction.reply({
@@ -569,6 +782,7 @@ function getEmojiForClass(className) {
     }
 
     const roles = interaction.member?.roles?.cache;
+
     const alunoRoleId = process.env.ALUNO_ROLE_ID;
     const professorRoleId = process.env.PROFESSOR_ROLE_ID;
 
@@ -585,7 +799,10 @@ function getEmojiForClass(className) {
       }
     }
 
-    const appBaseUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+    const appBaseUrl = (
+      process.env.APP_URL || 'http://localhost:3000'
+    ).replace(/\/$/, '');
+
     const chamadaUrl = `${appBaseUrl}/login`;
 
     const row = new ActionRowBuilder().addComponents(
@@ -597,7 +814,9 @@ function getEmojiForClass(className) {
 
     const embed = new EmbedBuilder()
       .setTitle('📋 Sistema de Chamada')
-      .setDescription('Clique no botão abaixo para entrar no sistema atual de chamadas.')
+      .setDescription(
+        'Clique no botão abaixo para entrar no sistema atual de chamadas.'
+      )
       .setColor('#5865F2')
       .setFooter({ text: 'Mercury Class' })
       .setTimestamp();
@@ -609,12 +828,16 @@ function getEmojiForClass(className) {
     });
   }
 
+  // ====================================================
+  // COMANDO /PRESENCA
+  // ====================================================
+
   if (interaction.commandName === 'presenca') {
     const userId = interaction.user.id;
     const username = interaction.user.username;
     const guildId = interaction.guild.id;
 
-    // 🚫 COOLDOWN (5s)
+    // Cooldown de cinco segundos.
     if (cooldown.has(userId)) {
       return interaction.reply({
         content: '⏳ Aguarde alguns segundos antes de tentar novamente.',
@@ -623,13 +846,18 @@ function getEmojiForClass(className) {
     }
 
     cooldown.set(userId, true);
-    setTimeout(() => cooldown.delete(userId), 5000);
+
+    setTimeout(() => {
+      cooldown.delete(userId);
+    }, 5000);
 
     try {
-      // 🔍 verifica se já marcou hoje no Discord
+      // Verifica se já marcou presença hoje.
       const hoje = new Date().toISOString().split('T')[0];
+
       const check = await db.query(
-        `SELECT 1 FROM presencas
+        `SELECT 1
+         FROM presencas
          WHERE user_id = $1
          AND guild_id = $2
          AND data::date = $3`,
@@ -643,13 +871,15 @@ function getEmojiForClass(className) {
         });
       }
 
-      // 💾 busca mapeamento para nome real
+      // Busca o nome real vinculado à conta.
       const mappingRes = await db.query(
-        `SELECT real_name FROM discord_mappings WHERE LOWER(discord_username) = LOWER($1)`,
+        `SELECT real_name
+         FROM discord_mappings
+         WHERE LOWER(discord_username) = LOWER($1)`,
         [username]
       );
 
-      // CASO A: Aluno NÃO está vinculado ainda -> Exibe o MODAL do Discord
+      // Se não estiver vinculado, abre o formulário.
       if (mappingRes.rowCount === 0) {
         const modal = new ModalBuilder()
           .setCustomId('vincular_modal')
@@ -664,17 +894,16 @@ function getEmojiForClass(className) {
           .setRequired(true)
           .setPlaceholder('Ex: Ygor Belarmino da silva');
 
-        const firstRow = new ActionRowBuilder().addComponents(realNameInput);
-        modal.addComponents(firstRow);
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(realNameInput)
+        );
 
-        await interaction.showModal(modal);
-        return;
+        return interaction.showModal(modal);
       }
 
-      // CASO B: Aluno já vinculado
       const mappedName = mappingRes.rows[0].real_name;
 
-      // Busca todas as sessões de aula ativas
+      // Busca sessões de aula ativas.
       const activeSessions = await db.query(
         `SELECT cs.id, cs.class_id, c.name AS class_name
          FROM class_sessions cs
@@ -683,22 +912,29 @@ function getEmojiForClass(className) {
          ORDER BY cs.start_time DESC`
       );
 
-      // Sub-Caso 1: Nenhuma aula ativa
+      // Nenhuma aula ativa.
       if (activeSessions.rowCount === 0) {
         await db.query(
-          `INSERT INTO presencas (user_id, username, guild_id, data) VALUES ($1, $2, $3, NOW())`,
+          `INSERT INTO presencas (user_id, username, guild_id, data)
+           VALUES ($1, $2, $3, NOW())`,
           [userId, username, guildId]
         );
 
         const total = await db.query(
-          `SELECT COUNT(*) as total FROM presencas WHERE user_id = $1 AND guild_id = $2`,
+          `SELECT COUNT(*) AS total
+           FROM presencas
+           WHERE user_id = $1 AND guild_id = $2`,
           [userId, guildId]
         );
+
         const totalPresencas = total.rows[0].total;
 
         const embed = new EmbedBuilder()
           .setTitle('✅ Presença Registrada')
-          .setDescription(`Olá, **${mappedName}**!\nSua presença geral no Discord foi confirmada (nenhuma aula ativa no momento).`)
+          .setDescription(
+            `Olá, **${mappedName}**!\n` +
+            'Sua presença geral no Discord foi confirmada (nenhuma aula ativa no momento).'
+          )
           .addFields(
             { name: '📅 Hoje', value: 'Confirmada', inline: true },
             { name: '📊 Total', value: String(totalPresencas), inline: true }
@@ -707,41 +943,55 @@ function getEmojiForClass(className) {
           .setFooter({ text: 'Mercury Class' })
           .setTimestamp();
 
-        return interaction.reply({ embeds: [embed] });
+        return interaction.reply({
+          embeds: [embed]
+        });
       }
 
-      // Sub-Caso 2: Exatamente uma aula ativa -> registra presença automaticamente
+      // Apenas uma aula ativa: registra automaticamente.
       if (activeSessions.rowCount === 1) {
         const sessionId = activeSessions.rows[0].id;
         const classId = activeSessions.rows[0].class_id;
         const className = activeSessions.rows[0].class_name;
 
         const checkAtt = await db.query(
-          `SELECT 1 FROM attendances WHERE class_session_id = $1 AND student_name = $2`,
+          `SELECT 1
+           FROM attendances
+           WHERE class_session_id = $1
+           AND student_name = $2`,
           [sessionId, mappedName]
         );
+
         if (checkAtt.rowCount === 0) {
           await db.query(
-            `INSERT INTO attendances (class_session_id, class_id, student_name, login_at, student_id) VALUES ($1, $2, $3, NOW(), $4)`,
+            `INSERT INTO attendances
+             (class_session_id, class_id, student_name, login_at, student_id)
+             VALUES ($1, $2, $3, NOW(), $4)`,
             [sessionId, classId, mappedName, userId]
           );
         }
 
-        // 💾 salva presença geral na tabela Discord
         await db.query(
-          `INSERT INTO presencas (user_id, username, guild_id, data) VALUES ($1, $2, $3, NOW())`,
+          `INSERT INTO presencas (user_id, username, guild_id, data)
+           VALUES ($1, $2, $3, NOW())`,
           [userId, username, guildId]
         );
 
         const total = await db.query(
-          `SELECT COUNT(*) as total FROM presencas WHERE user_id = $1 AND guild_id = $2`,
+          `SELECT COUNT(*) AS total
+           FROM presencas
+           WHERE user_id = $1 AND guild_id = $2`,
           [userId, guildId]
         );
+
         const totalPresencas = total.rows[0].total;
 
         const embed = new EmbedBuilder()
           .setTitle('✅ Presença Registrada')
-          .setDescription(`Olá, **${mappedName}**!\n📖 **Chamada Escolar:** Presença confirmada na aula ativa de **${className}**!`)
+          .setDescription(
+            `Olá, **${mappedName}**!\n` +
+            `📖 **Chamada Escolar:** Presença confirmada na aula ativa de **${className}**!`
+          )
           .addFields(
             { name: '📅 Matéria', value: className, inline: true },
             { name: '📊 Total', value: String(totalPresencas), inline: true }
@@ -750,23 +1000,33 @@ function getEmojiForClass(className) {
           .setFooter({ text: 'Mercury Class' })
           .setTimestamp();
 
-        return interaction.reply({ embeds: [embed] });
+        return interaction.reply({
+          embeds: [embed]
+        });
       }
 
-      // Sub-Caso 3: Múltiplas aulas ativas -> gera botões interativos para escolha
+      // Mais de uma aula ativa: apresenta botões para escolha.
       const embed = new EmbedBuilder()
         .setTitle('🏫 Escolha sua Aula')
-        .setDescription(`Olá, **${mappedName}**!\nIdentificamos mais de uma aula ativa no momento. Clique no botão correspondente para registrar sua presença:`)
+        .setDescription(
+          `Olá, **${mappedName}**!\n` +
+          'Identificamos mais de uma aula ativa no momento. ' +
+          'Clique no botão correspondente para registrar sua presença:'
+        )
         .setColor('#5865F2')
         .setFooter({ text: 'Mercury Class' })
         .setTimestamp();
 
       const row = new ActionRowBuilder();
+
       activeSessions.rows.forEach(session => {
         const emoji = getEmojiForClass(session.class_name);
+
         row.addComponents(
           new ButtonBuilder()
-            .setCustomId(`presenca_aula_${session.id}_${session.class_id}`)
+            .setCustomId(
+              `presenca_aula_${session.id}_${session.class_id}`
+            )
             .setLabel(`${emoji} ${session.class_name}`)
             .setStyle(ButtonStyle.Primary)
         );
@@ -777,28 +1037,40 @@ function getEmojiForClass(className) {
         components: [row],
         ephemeral: true
       });
+
     } catch (error) {
-      console.error(error);
-      await interaction.reply({
-        content: '❌ Erro ao registrar presença.',
-        ephemeral: true
-      });
+      console.error('Erro ao registrar presença:', error);
+
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: '❌ Erro ao registrar presença.',
+          ephemeral: true
+        });
+      }
     }
   }
 });
 
-client.login(BOT_TOKEN);
+// ======================================================
+// LOGIN DO BOT
+// ======================================================
 
-const http = require('http');
+client.login(BOT_TOKEN).catch(error => {
+  console.error('❌ Não foi possível conectar o bot ao Discord:', error);
+});
+
+// ======================================================
+// SERVIDOR HTTP PARA O RENDER
+// ======================================================
 
 const PORT = process.env.PORT || 3000;
+
 http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.writeHead(200, {
+    'Content-Type': 'text/plain; charset=utf-8'
+  });
+
   res.end('Bot online');
 }).listen(PORT, () => {
   console.log(`🌐 Servidor HTTP de health-check rodando na porta ${PORT}`);
 });
-
-client.on(Events.InteractionCreate, async (interaction) => {
-  // 1. Modal Submit Handler
-  if (interaction.isModalSubmit()) {
