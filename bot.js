@@ -4,6 +4,7 @@ const {
   Client,
   GatewayIntentBits,
   Events,
+  MessageFlags,
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
@@ -241,7 +242,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
         const deferStart = Date.now();
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         console.log(
           `⏱️ [${totalLabel}] deferReply: ${Date.now() - deferStart}ms`
@@ -316,7 +317,6 @@ client.on(Events.InteractionCreate, async interaction => {
             text: 'Assistente de TCC • Modelo inicial para revisão'
           });
 
-        
         // Envia a confirmação e o documento Word na mesma resposta.
         const envioStart = Date.now();
 
@@ -340,7 +340,6 @@ client.on(Events.InteractionCreate, async interaction => {
             `✅ [${totalLabel}] Confirmação e documento enviados em ` +
             `${Date.now() - envioStart}ms.`
           );
-
         } catch (uploadError) {
           console.error(
             `❌ [${totalLabel}] Falha ao enviar confirmação e Word:`,
@@ -367,71 +366,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         console.timeEnd(totalLabel);
-
-        console.log(
-          `🎉 [${totalLabel}] TCC concluído com sucesso.`
-        );
-
-        return;
-
-}
-
-console.timeEnd(totalLabel);
-
-console.log(`🎉 [${totalLabel}] TCC concluído com sucesso.`);
-
-return;
-
-        // Depois envia o arquivo Word.
-        const envioStart = Date.now();
-
-        console.log(`📤 [${totalLabel}] Enviando documento Word...`);
-
-        try {
-          await interaction.followUp({
-            content: '📄 Seu modelo inicial de TCC está pronto:',
-            files: [
-              {
-                attachment: documentBuffer,
-                name: `TCC_modelo_${saved.id}.docx`
-              }
-            ],
-            ephemeral: true
-          });
-
-          console.log(
-            `✅ [${totalLabel}] Documento enviado em ` +
-            `${Date.now() - envioStart}ms.`
-          );
-
-        } catch (uploadError) {
-          console.error(
-            `❌ [${totalLabel}] Erro ao enviar o Word:`,
-            describeError(uploadError)
-          );
-
-          try {
-            await interaction.editReply({
-              content:
-                '✅ Seu projeto foi salvo, mas o Discord não conseguiu ' +
-                'entregar o arquivo Word. Tente novamente ou avise a equipe.',
-              embeds: []
-            });
-          } catch (replyError) {
-            console.error(
-              `❌ [${totalLabel}] Erro ao atualizar a confirmação:`,
-              describeError(replyError)
-            );
-          }
-
-          console.timeEnd(totalLabel);
-          return;
-        }
-
-        console.timeEnd(totalLabel);
-
         console.log(`🎉 [${totalLabel}] TCC concluído com sucesso.`);
-
         return;
 
       } catch (error) {
@@ -447,12 +382,13 @@ return;
               content:
                 '❌ Não consegui concluir a criação do projeto ou do Word. ' +
                 'O erro foi registrado nos Logs do Render.',
-              embeds: []
+              embeds: [],
+              files: []
             });
           } else {
             await interaction.reply({
               content: '❌ Não consegui iniciar o projeto de TCC. Tente novamente.',
-              ephemeral: true
+              flags: MessageFlags.Ephemeral
             });
           }
         } catch (replyError) {
@@ -491,15 +427,14 @@ return;
           content:
             `✅ Conta vinculada com sucesso a **${realName}**!\n` +
             'Digite o comando `/presenca` novamente para registrar sua presença.',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
-
       } catch (error) {
         console.error('Erro ao vincular conta:', error);
 
         await interaction.reply({
           content: '❌ Erro ao vincular sua conta.',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
       }
     }
@@ -536,7 +471,7 @@ return;
             content:
               '⚠️ Sua conta ainda não está vinculada. ' +
               'Digite `/presenca` para vincular primeiro.',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
         }
 
@@ -601,14 +536,13 @@ return;
           embeds: [embed],
           components: []
         });
-
       } catch (error) {
         console.error('Erro ao clicar no botão de presença:', error);
 
         if (!interaction.replied && !interaction.deferred) {
           await interaction.reply({
             content: '❌ Erro ao registrar presença na matéria selecionada.',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
           });
         }
       }
@@ -645,7 +579,7 @@ return;
     const tema = interaction.options.getString('tema');
     const objetivo = interaction.options.getString('objetivo') || '';
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
       const resultado = await gerarRascunhoComPesquisa({
@@ -678,7 +612,6 @@ return;
           }
         ]
       });
-
     } catch (error) {
       console.error('Erro ao gerar rascunho com pesquisa acadêmica:', error);
 
@@ -707,7 +640,7 @@ return;
     if (!isAdmin && !hasAllowedRole) {
       return interaction.reply({
         content: '🔒 Este comando é restrito à equipe autorizada.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
     }
 
@@ -746,16 +679,15 @@ return;
 
       return interaction.reply({
         embeds: [embed],
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
-
     } catch (error) {
       console.error('Erro ao montar estatísticas:', error);
 
       return interaction.reply({
         content:
           'Não consegui consultar as estatísticas. Confira se o PostgreSQL está configurado e se o bot já inicializou as tabelas.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
     }
   }
@@ -828,7 +760,7 @@ return;
     if (!interaction.inGuild()) {
       return interaction.reply({
         content: '⚠️ Este comando só pode ser usado dentro do servidor.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
     }
 
@@ -845,7 +777,7 @@ return;
       if (!isAluno && !isProfessor && !isAdmin) {
         return interaction.reply({
           content: '⛔ Apenas aluno, professor ou admin podem usar este comando.',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
       }
     }
@@ -875,7 +807,7 @@ return;
     return interaction.reply({
       embeds: [embed],
       components: [row],
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
   }
 
@@ -892,7 +824,7 @@ return;
     if (cooldown.has(userId)) {
       return interaction.reply({
         content: '⏳ Aguarde alguns segundos antes de tentar novamente.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
     }
 
@@ -918,7 +850,7 @@ return;
       if (check.rows.length > 0) {
         return interaction.reply({
           content: '⚠️ Você já marcou presença hoje!',
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
       }
 
@@ -1070,7 +1002,7 @@ return;
 
       const row = new ActionRowBuilder();
 
-      activeSessions.rows.forEach(session => {
+      activeSessions.rows.slice(0, 5).forEach(session => {
         const emoji = getEmojiForClass(session.class_name);
 
         row.addComponents(
@@ -1078,24 +1010,22 @@ return;
             .setCustomId(
               `presenca_aula_${session.id}_${session.class_id}`
             )
-            .setLabel(`${emoji} ${session.class_name}`)
+            .setLabel(`${emoji} ${session.class_name}`.slice(0, 80))
             .setStyle(ButtonStyle.Primary)
         );
       });
 
       return interaction.reply({
         embeds: [embed],
-        components: [row],
-        ephemeral: true
+        components: [row]
       });
-
     } catch (error) {
-      console.error('Erro ao registrar presença:', error);
+      console.error('Erro no comando /presenca:', error);
 
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({
-          content: '❌ Erro ao registrar presença.',
-          ephemeral: true
+        return interaction.reply({
+          content: '❌ Erro ao processar o comando `/presenca`.',
+          flags: MessageFlags.Ephemeral
         });
       }
     }
@@ -1103,25 +1033,18 @@ return;
 });
 
 // ======================================================
-// LOGIN DO BOT
-// ======================================================
-
-client.login(BOT_TOKEN).catch(error => {
-  console.error('❌ Não foi possível conectar o bot ao Discord:', error);
-});
-
-// ======================================================
-// SERVIDOR HTTP PARA O RENDER
+// SERVIDOR HTTP (HEALTH-CHECK PARA O RENDER)
 // ======================================================
 
 const PORT = process.env.PORT || 3000;
 
-http.createServer((req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/plain; charset=utf-8'
-  });
-
-  res.end('Bot online');
-}).listen(PORT, () => {
-  console.log(`🌐 Servidor HTTP de health-check rodando na porta ${PORT}`);
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('OK');
 });
+
+server.listen(PORT, () => {
+  console.log(`🌐 Servidor HTTP ativo na porta ${PORT}`);
+});
+
+client.login(BOT_TOKEN);
