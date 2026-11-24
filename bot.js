@@ -316,52 +316,64 @@ client.on(Events.InteractionCreate, async interaction => {
             text: 'Assistente de TCC • Modelo inicial para revisão'
           });
 
-        // Primeiro envia a confirmação.
-      // Envia a confirmação e o documento Word na mesma resposta.
-const envioStart = Date.now();
+        
+        // Envia a confirmação e o documento Word na mesma resposta.
+        const envioStart = Date.now();
 
-console.log(`📤 [${totalLabel}] Enviando confirmação e Word ao Discord...`);
+        console.log(
+          `📤 [${totalLabel}] Enviando confirmação e Word ao Discord...`
+        );
 
-try {
-  await interaction.editReply({
-    content: '📄 Seu modelo inicial de TCC está pronto!',
-    embeds: [resumo],
-    files: [
-      {
-        attachment: documentBuffer,
-        name: `TCC_modelo_${saved.id}.docx`
-      }
-    ]
-  });
+        try {
+          await interaction.editReply({
+            content: '📄 Seu modelo inicial de TCC está pronto!',
+            embeds: [resumo],
+            files: [
+              {
+                attachment: documentBuffer,
+                name: `TCC_modelo_${saved.id}.docx`
+              }
+            ]
+          });
 
-  console.log(
-    `✅ [${totalLabel}] Confirmação e documento enviados em ` +
-    `${Date.now() - envioStart}ms.`
-  );
+          console.log(
+            `✅ [${totalLabel}] Confirmação e documento enviados em ` +
+            `${Date.now() - envioStart}ms.`
+          );
 
-} catch (uploadError) {
-  console.error(
-    `❌ [${totalLabel}] Falha ao enviar confirmação e Word:`,
-    describeError(uploadError)
-  );
+        } catch (uploadError) {
+          console.error(
+            `❌ [${totalLabel}] Falha ao enviar confirmação e Word:`,
+            describeError(uploadError)
+          );
 
-  try {
-    await interaction.editReply({
-      content:
-        '⚠️ Seu projeto foi salvo, mas ocorreu um erro ao entregar o documento Word. ' +
-        'A equipe poderá consultar os registros do Render.',
-      embeds: [],
-      files: []
-    });
-  } catch (replyError) {
-    console.error(
-      `❌ [${totalLabel}] Não foi possível atualizar a resposta:`,
-      describeError(replyError)
-    );
-  }
+          try {
+            await interaction.editReply({
+              content:
+                '⚠️ Seu projeto foi salvo, mas ocorreu um erro ao entregar ' +
+                'o documento Word. A equipe poderá consultar os registros do Render.',
+              embeds: [],
+              files: []
+            });
+          } catch (replyError) {
+            console.error(
+              `❌ [${totalLabel}] Não foi possível atualizar a resposta:`,
+              describeError(replyError)
+            );
+          }
 
-  console.timeEnd(totalLabel);
-  return;
+          console.timeEnd(totalLabel);
+          return;
+        }
+
+        console.timeEnd(totalLabel);
+
+        console.log(
+          `🎉 [${totalLabel}] TCC concluído com sucesso.`
+        );
+
+        return;
+
 }
 
 console.timeEnd(totalLabel);
