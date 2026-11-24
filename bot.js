@@ -235,7 +235,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
   if (interaction.isModalSubmit()) {
 
-    if (interaction.customId === 'iniciar_tcc_modal') {
+   if (interaction.customId === 'iniciar_tcc_modal') {
       const nomeAluno = interaction.fields.getTextInputValue('tcc_aluno').trim();
       const cursoInstituicao = interaction.fields.getTextInputValue('tcc_curso_instituicao').trim();
       const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
@@ -323,14 +323,16 @@ client.on(Events.InteractionCreate, async interaction => {
             text: 'Assistente de TCC • Revise com seu orientador antes da entrega'
           });
 
-        await withTimeout(
+        // Tenta atualizar o resumo rapidamente sem travar o envio dos arquivos se o Discord demorar
+        await Promise.race([
           interaction.editReply({
             content: '✅ Projeto salvo! Enviando o Word (.docx) e o PowerPoint (.pptx)...',
             embeds: [resumo]
+          }).catch(err => {
+            console.warn(`⚠️ [${totalLabel}] Aviso no editReply inicial:`, describeError(err));
           }),
-          15000,
-          `${totalLabel}_editReply_resumo`
-        );
+          new Promise(resolve => setTimeout(resolve, 3500))
+        ]);
 
         const envioStart = Date.now();
         console.log(`📤 [${totalLabel}] Enviando arquivos Word e PowerPoint via followUp...`);
@@ -343,18 +345,56 @@ client.on(Events.InteractionCreate, async interaction => {
           name: `Apresentacao_TCC_projeto_${saved.id}.pptx`
         });
 
-        await withTimeout(
-          interaction.followUp({
-            content: `📄 Arquivos do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e Apresentação PowerPoint:`,
-            files: [arquivoWord, arquivoPptx]
-          }),
-          20000,
-          `${totalLabel}_followUp_arquivos`
-        );
+        try {
+          await withTimeout(
+            interaction.followUp({
+              content: `📄 Arquivos do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e Apresentação PowerPoint:`,
+              files: [arquivoWord, arquivoPptx]
+            }),
+            25000,
+            `${totalLabel}_followUp_arquivos`
+          );
+        } catch (multiFileError) {
+          console.warn(
+            `⚠️ [${totalLabel}] Falha ao enviar ambos juntos, tentando enviar separadamente:`,
+            describeError(multiFileError)
+          );
+
+          await withTimeout(
+            interaction.followUp({
+              content: `📄 Word ABNT do projeto nº ${saved.id} (${nomeAluno}):`,
+              files: [
+                new AttachmentBuilder(rawDocx, {
+                  name: `TCC_ABNT_projeto_${saved.id}.docx`
+                })
+              ]
+            }),
+            20000,
+            `${totalLabel}_followUp_docx_only`
+          );
+
+          await withTimeout(
+            interaction.followUp({
+              content: `📊 Apresentação PowerPoint do projeto nº ${saved.id} (${nomeAluno}):`,
+              files: [
+                new AttachmentBuilder(rawPptx, {
+                  name: `Apresentacao_TCC_projeto_${saved.id}.pptx`
+                })
+              ]
+            }),
+            20000,
+            `${totalLabel}_followUp_pptx_only`
+          );
+        }
 
         console.log(
-          `✅ [${totalLabel}] Arquivos Word e PowerPoint enviados em ${Date.now() - envioStart}ms.`
+          `✅ [${totalLabel}] Arquivos enviados em ${Date.now() - envioStart}ms.`
         );
+
+        await interaction.editReply({
+          content: '✅ Projeto salvo e arquivos Word + PowerPoint enviados!',
+          embeds: [resumo]
+        }).catch(() => {});
 
         console.timeEnd(totalLabel);
         console.log(`🎉 [${totalLabel}] TCC concluído com sucesso.`);
