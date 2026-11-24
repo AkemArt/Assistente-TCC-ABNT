@@ -21,6 +21,10 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
 }
 
+function isValidEightDigitPin(password) {
+  return /^\d{8}$/.test(String(password || '').trim());
+}
+
 async function initAuth() {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL não configurado.');
@@ -44,6 +48,21 @@ async function initAuth() {
     ALTER TABLE tcc_users ADD COLUMN IF NOT EXISTS keep_connected BOOLEAN NOT NULL DEFAULT TRUE;
   `);
 
+  await db.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'tcc_users'
+          AND column_name = 'login_user'
+      ) THEN
+        ALTER TABLE tcc_users ALTER COLUMN login_user DROP NOT NULL;
+      END IF;
+    END
+    $$;
+  `);
+
   console.log('🔐 Tabela de utilizadores (tcc_users) verificada.');
 }
 
@@ -54,8 +73,8 @@ async function registerUser({ discordUserId, discordUsername, email, password })
   if (!isValidEmail(cleanEmail)) {
     return { ok: false, message: 'Introduza um endereço de e-mail válido.' };
   }
-  if (cleanPass.length < 4) {
-    return { ok: false, message: 'A palavra-passe/senha deve ter pelo menos 4 caracteres.' };
+  if (!isValidEightDigitPin(cleanPass)) {
+    return { ok: false, message: 'A senha deve conter exatamente 8 números (apenas dígitos de 0 a 9).' };
   }
 
   const existingByDiscord = await db.query(
@@ -105,8 +124,8 @@ async function loginUser({ discordUserId, discordUsername, email, password }) {
   const cleanEmail = String(email || '').trim().toLowerCase();
   const cleanPass = String(password || '').trim();
 
-  if (!isValidEmail(cleanEmail)) {
-    return { ok: false, message: 'E-mail ou palavra-passe/senha inválidos.' };
+  if (!isValidEmail(cleanEmail) || !isValidEightDigitPin(cleanPass)) {
+    return { ok: false, message: 'E-mail ou senha inválidos. A senha deve ter exatamente 8 números.' };
   }
 
   const res = await db.query(
@@ -117,7 +136,7 @@ async function loginUser({ discordUserId, discordUsername, email, password }) {
   );
 
   if (res.rowCount === 0) {
-    return { ok: false, message: 'E-mail ou palavra-passe/senha inválidos.' };
+    return { ok: false, message: 'E-mail ou senha inválidos.' };
   }
 
   const user = res.rows[0];
@@ -130,7 +149,7 @@ async function loginUser({ discordUserId, discordUsername, email, password }) {
   }
 
   if (!verifyPassword(cleanPass, user.password_hash)) {
-    return { ok: false, message: 'E-mail ou palavra-passe/senha inválidos.' };
+    return { ok: false, message: 'E-mail ou senha inválidos.' };
   }
 
   await db.query(
