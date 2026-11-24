@@ -235,7 +235,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
   if (interaction.isModalSubmit()) {
 
-   if (interaction.customId === 'iniciar_tcc_modal') {
+  if (interaction.customId === 'iniciar_tcc_modal') {
       const nomeAluno = interaction.fields.getTextInputValue('tcc_aluno').trim();
       const cursoInstituicao = interaction.fields.getTextInputValue('tcc_curso_instituicao').trim();
       const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
@@ -308,8 +308,7 @@ client.on(Events.InteractionCreate, async interaction => {
           .setTitle('📚 Projeto de TCC salvo, Word ABNT e PowerPoint criados')
           .setDescription(
             `Seu projeto foi salvo no banco de dados (projeto nº ${saved.id}) ` +
-            'com estrutura ABNT (capa, folha de rosto, problema, solução, citações, conclusão e referências) ' +
-            'e apresentação em PowerPoint temática prontos para revisão.'
+            'com estrutura ABNT e apresentação em PowerPoint temática prontos para revisão.'
           )
           .addFields(
             { name: 'Aluno(a)', value: nomeAluno, inline: false },
@@ -323,78 +322,56 @@ client.on(Events.InteractionCreate, async interaction => {
             text: 'Assistente de TCC • Revise com seu orientador antes da entrega'
           });
 
-        // Tenta atualizar o resumo rapidamente sem travar o envio dos arquivos se o Discord demorar
-        await Promise.race([
-          interaction.editReply({
-            content: '✅ Projeto salvo! Enviando o Word (.docx) e o PowerPoint (.pptx)...',
-            embeds: [resumo]
-          }).catch(err => {
-            console.warn(`⚠️ [${totalLabel}] Aviso no editReply inicial:`, describeError(err));
-          }),
-          new Promise(resolve => setTimeout(resolve, 3500))
-        ]);
-
         const envioStart = Date.now();
-        console.log(`📤 [${totalLabel}] Enviando arquivos Word e PowerPoint via followUp...`);
+        console.log(`📤 [${totalLabel}] Enviando arquivos Word e PowerPoint...`);
 
-        const arquivoWord = new AttachmentBuilder(rawDocx, {
-          name: `TCC_ABNT_projeto_${saved.id}.docx`
-        });
+        const payloadArquivos = {
+          content: `📄 <@${interaction.user.id}> — Arquivos do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e PowerPoint:`,
+          files: [
+            new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
+            new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
+          ]
+        };
 
-        const arquivoPptx = new AttachmentBuilder(rawPptx, {
-          name: `Apresentacao_TCC_projeto_${saved.id}.pptx`
-        });
+        let enviado = false;
 
-        try {
-          await withTimeout(
-            interaction.followUp({
-              content: `📄 Arquivos do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e Apresentação PowerPoint:`,
-              files: [arquivoWord, arquivoPptx]
-            }),
-            25000,
-            `${totalLabel}_followUp_arquivos`
-          );
-        } catch (multiFileError) {
-          console.warn(
-            `⚠️ [${totalLabel}] Falha ao enviar ambos juntos, tentando enviar separadamente:`,
-            describeError(multiFileError)
-          );
-
-          await withTimeout(
-            interaction.followUp({
-              content: `📄 Word ABNT do projeto nº ${saved.id} (${nomeAluno}):`,
-              files: [
-                new AttachmentBuilder(rawDocx, {
-                  name: `TCC_ABNT_projeto_${saved.id}.docx`
-                })
-              ]
-            }),
-            20000,
-            `${totalLabel}_followUp_docx_only`
-          );
-
-          await withTimeout(
-            interaction.followUp({
-              content: `📊 Apresentação PowerPoint do projeto nº ${saved.id} (${nomeAluno}):`,
-              files: [
-                new AttachmentBuilder(rawPptx, {
-                  name: `Apresentacao_TCC_projeto_${saved.id}.pptx`
-                })
-              ]
-            }),
-            20000,
-            `${totalLabel}_followUp_pptx_only`
-          );
+        if (interaction.channel && typeof interaction.channel.send === 'function') {
+          try {
+            await withTimeout(
+              interaction.channel.send(payloadArquivos),
+              12000,
+              `${totalLabel}_channel_send`
+            );
+            enviado = true;
+            console.log(`✅ [${totalLabel}] Arquivos enviados via channel.send em ${Date.now() - envioStart}ms.`);
+          } catch (channelErr) {
+            console.warn(`⚠️ [${totalLabel}] Falha no channel.send, tentando followUp:`, describeError(channelErr));
+          }
         }
 
-        console.log(
-          `✅ [${totalLabel}] Arquivos enviados em ${Date.now() - envioStart}ms.`
-        );
+        if (!enviado) {
+          await withTimeout(
+            interaction.followUp({
+              content: `📄 Arquivos do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e PowerPoint:`,
+              files: [
+                new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
+                new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
+              ]
+            }),
+            12000,
+            `${totalLabel}_followUp_fallback`
+          );
+          enviado = true;
+          console.log(`✅ [${totalLabel}] Arquivos enviados via followUp em ${Date.now() - envioStart}ms.`);
+        }
 
-        await interaction.editReply({
-          content: '✅ Projeto salvo e arquivos Word + PowerPoint enviados!',
-          embeds: [resumo]
-        }).catch(() => {});
+        await Promise.race([
+          interaction.editReply({
+            content: '✅ Projeto salvo e arquivos Word (.docx) + PowerPoint (.pptx) enviados!',
+            embeds: [resumo]
+          }).catch(() => {}),
+          new Promise(resolve => setTimeout(resolve, 2500))
+        ]);
 
         console.timeEnd(totalLabel);
         console.log(`🎉 [${totalLabel}] TCC concluído com sucesso.`);
@@ -408,13 +385,16 @@ client.on(Events.InteractionCreate, async interaction => {
 
         try {
           if (interaction.deferred || interaction.replied) {
-            await interaction.editReply({
-              content:
-                '❌ Não consegui concluir a criação do projeto ou o envio dos arquivos. ' +
-                'Confira os Logs do Render para ver o detalhe.',
-              embeds: [],
-              files: []
-            });
+            await Promise.race([
+              interaction.editReply({
+                content:
+                  '❌ Não consegui concluir o envio dos arquivos. ' +
+                  'Confira os Logs do Render para ver o detalhe.',
+                embeds: [],
+                files: []
+              }).catch(() => {}),
+              new Promise(resolve => setTimeout(resolve, 2500))
+            ]);
           } else {
             await interaction.reply({
               content: '❌ Não consegui iniciar o projeto de TCC. Tente novamente.',
