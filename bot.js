@@ -219,21 +219,53 @@ if (interaction.customId === 'iniciar_tcc_modal') {
       });
 
     // 5. Medir o envio do documento ao Discord
-    const envioStart = Date.now();
+   
+// ETAPA 1: Entregar imediatamente o resumo ao usuário
+const respostaStart = Date.now();
 
-    await interaction.editReply({
-      embeds: [resumo],
-      files: [
-        {
-          attachment: documentBuffer,
-          name: `TCC_modelo_${saved.id}.docx`
-        }
-      ]
-    });
+await interaction.editReply({
+  embeds: [resumo]
+});
 
-    console.log(
-      `📤 [${totalLabel}] envio_discord: ${Date.now() - envioStart}ms`
-    );
+console.log(
+  `📨 [${totalLabel}] resposta_texto: ${Date.now() - respostaStart}ms`
+);
+
+// ETAPA 2: Enviar o documento Word separadamente
+const envioStart = Date.now();
+
+try {
+  await interaction.followUp({
+    content: '📄 Seu modelo inicial de TCC está pronto:',
+    files: [
+      {
+        attachment: documentBuffer,
+        name: `TCC_modelo_${saved.id}.docx`
+      }
+    ],
+    ephemeral: true
+  });
+
+  console.log(
+    `📤 [${totalLabel}] envio_discord: ${Date.now() - envioStart}ms`
+  );
+
+} catch (uploadError) {
+  console.error('❌ Erro ao enviar o arquivo Word:', uploadError);
+
+  await interaction.editReply({
+    content: '✅ Seu projeto foi salvo, mas houve um problema ao enviar o Word. Tente novamente ou avise a equipe.',
+    embeds: []
+  });
+
+  return;
+}
+
+console.timeEnd(totalLabel);
+
+console.log('✅ TCC concluído com sucesso.');
+return;
+
 
     // 6. Tempo total
     console.timeEnd(totalLabel);
