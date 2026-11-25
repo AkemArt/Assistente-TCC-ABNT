@@ -92,8 +92,12 @@ async function processTccProject(interaction, project, totalLabel) {
   let saved = { id: 'novo' };
   try {
     saved = await tccProjects.saveProject(project);
+    if (!saved || !saved.id || saved.id === 'novo' || saved.id === 'sem-id') {
+      throw new Error('O banco não confirmou o salvamento do projeto.');
+    }
   } catch (dbErr) {
-    console.error(`⚠️ [${totalLabel}] Falha ao salvar no banco, prosseguindo com arquivos:`, describeError(dbErr));
+    console.error(`❌ [${totalLabel}] Não foi possível salvar o projeto no banco:`, describeError(dbErr));
+    throw new Error('Não foi possível salvar seu projeto no banco de dados. Nenhum documento será apresentado como concluído. Tente novamente mais tarde.');
   }
 
   // Uma única pesquisa e uma única redação servem de base aos dois documentos.
