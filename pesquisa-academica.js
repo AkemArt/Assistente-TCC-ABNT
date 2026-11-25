@@ -267,8 +267,9 @@ function mapearTrabalho(trabalho, termosTema, termosObjetivo = []) {
     (localPrincipal && localPrincipal.landing_page_url) || null;
   const link = urlHttpsPublica(linkDoi) ? linkDoi :
     (urlHttpsPublica(linkPagina) ? linkPagina : null);
-  const pdfUrl = melhorLocalAberto && melhorLocalAberto.pdf_url ||
+  const pdfUrlCandidato = melhorLocalAberto && melhorLocalAberto.pdf_url ||
     (trabalho.locations || []).find(local => local && local.is_oa && local.pdf_url)?.pdf_url || null;
+  const pdfUrl = urlHttpsPublica(pdfUrlCandidato) ? pdfUrlCandidato : null;
   const revista = (localPrincipal && localPrincipal.source && localPrincipal.source.display_name) ||
     (melhorLocalAberto && melhorLocalAberto.source && melhorLocalAberto.source.display_name) || null;
 
