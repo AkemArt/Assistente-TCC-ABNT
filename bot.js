@@ -103,7 +103,7 @@ async function processTccProject(interaction, project, totalLabel) {
   // Uma única pesquisa e uma única redação servem de base aos dois documentos.
   const pesquisa = await withTimeout(
     tccProjects.generateTccResearch(project),
-    120000,
+    540000,
     `${totalLabel}_academic_research`
   );
 
