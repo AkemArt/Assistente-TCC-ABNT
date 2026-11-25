@@ -405,7 +405,7 @@ test('aceita artigos, revisões e trabalhos de congresso e rejeita tipos não ar
   assert.equal(tipoPublicacaoAcademicaAceito('article'), true);
   assert.equal(tipoPublicacaoAcademicaAceito('review'), true);
   assert.equal(tipoPublicacaoAcademicaAceito('proceedings-article'), true);
-  assert.equal(tipoPublicacaoAcademicaAceito('book-chapter'), true);
+  assert.equal(tipoPublicacaoAcademicaAceito('book-chapter'), false);
   assert.equal(tipoPublicacaoAcademicaAceito('dataset'), false);
   assert.equal(tipoPublicacaoAcademicaAceito('editorial'), false);
   assert.equal(tipoPublicacaoAcademicaAceito('dissertation'), false);
