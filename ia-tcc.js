@@ -92,8 +92,9 @@ function validarEvidenciasTextuais(dados, fontes) {
     for (const paragrafo of (dados[secao] || [])) {
       const marcadores = String(paragrafo).match(/\\[F\\d+\\]/g) || [];
       for (const marcador of marcadores) {
-        const chave = String(paragrafo) + '::' + marcador;
-        paragrafosComCitacao.set(chave, { paragrafo: String(paragrafo), fonteId: 'F' + Number(marcador.match(/\\d+/)[0]) });
+        const fonteId = 'F' + Number(marcador.match(/\\d+/)[0]);
+        const chave = String(paragrafo) + '::' + fonteId;
+        paragrafosComCitacao.set(chave, { paragrafo: String(paragrafo), fonteId });
       }
     }
   }
