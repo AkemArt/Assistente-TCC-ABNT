@@ -414,7 +414,7 @@ async function generateTccPptx(project, pesquisa = null) {
         x: 0.8, y: 4.45, w: 11.7, h: 0.45, fontSize: 16
       });
     }
-    slide.addText('Situação do texto: ' + String(fonte.statusTextoCompleto || 'Não verificada') + '\\nMetadados: ' + String(fonte.verificacaoCrossref || 'Não verificados'), {
+    slide.addText('Situação do texto: ' + String(fonte.statusTextoCompleto || 'Não verificada') + '\nMetadados: ' + String(fonte.verificacaoCrossref || 'Não verificados'), {
       x: 0.8, y: 5.25, w: 11.7, h: 0.8, fontSize: 12, color: '475569', valign: 'top'
     });
   }
