@@ -21,6 +21,31 @@ function ordenarFontesBibliografia(fontes) {
   });
 }
 
+function aplicarSufixosAno(fontes) {
+  const ordenadas = ordenarFontesBibliografia(fontes);
+  const grupos = new Map();
+  for (const fonte of ordenadas) {
+    const chaveAutores = normalizarParaComparacao((fonte.autores || []).join(' '));
+    const chave = chaveAutores + '::' + String(fonte.ano || '');
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(fonte);
+  }
+
+  return ordenadas.map(fonte => {
+    const chaveAutores = normalizarParaComparacao((fonte.autores || []).join(' '));
+    const chave = chaveAutores + '::' + String(fonte.ano || '');
+    const grupo = grupos.get(chave) || [];
+    const indice = grupo.findIndex(item =>
+      (item.openAlexId && fonte.openAlexId && item.openAlexId === fonte.openAlexId) ||
+      (item.titulo && fonte.titulo && item.titulo === fonte.titulo)
+    );
+    const sufixo = grupo.length > 1 && indice >= 0
+      ? String.fromCharCode(97 + indice)
+      : '';
+    return { ...fonte, anoReferencia: String(fonte.ano || 's.d.') + sufixo };
+  });
+}
+
 function normalizarAutorParaCitacao(nome) {
   const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
   if (!partes.length) return '';
@@ -438,7 +463,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     }
   }
 
-  const fontesCitadasOrdenadas = ordenarFontesBibliografia(
+  const fontesCitadasOrdenadas = aplicarSufixosAno(
     fontes.filter(fonte => fontesCitadas.has(fonte.idFonte))
   );
   const referencias = fontesCitadasOrdenadas.map(formatarReferenciaABNT);
@@ -505,5 +530,6 @@ module.exports = {
   gerarTextoTCC,
   gerarRascunhoComPesquisa,
   formatarCitacao,
-  ordenarFontesBibliografia
+  ordenarFontesBibliografia,
+  aplicarSufixosAno
 };
