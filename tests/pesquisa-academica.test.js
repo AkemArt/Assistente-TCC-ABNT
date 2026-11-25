@@ -252,8 +252,8 @@ test('exige evidência literal para cada fonte citada no parágrafo', () => {
   };
   assert.deepEqual(validarVinculoDeEvidencias(dados, [fonte]), new Set(['F1']));
   const evidencias = validarEvidenciasTextuais(dados, [fonte]);
-  assert.equal(evidencias.length, 1);
-  assert.equal(evidencias[0].fonteId, 'F1');
+  assert.equal(evidencias.length, 4);
+  assert.ok(evidencias.every(item => item.fonteId === 'F1'));
 });
 
 test('rejeita trecho de evidência que não existe no texto recuperado', () => {
