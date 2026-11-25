@@ -230,21 +230,25 @@ test('exige evidência literal para cada fonte citada no parágrafo', () => {
     statusTextoCompleto: 'Somente resumo disponível'
   };
   const paragrafo = 'O estudo relata melhora nos resultados dos estudantes observados [F1].';
+  const paragrafoTeoria = 'O resumo informa resultados de aprendizagem na amostra observada [F1].';
+  const paragrafoDiscussao = 'A interpretação dos achados deve respeitar os limites da amostra descrita [F1].';
+  const paragrafoConclusao = 'A evidência permite concluir apenas sobre os resultados relatados no estudo [F1].';
+  const trecho = 'reports improved student outcomes in the observed sample';
   const dados = {
     introducao: [paragrafo],
     problemaPesquisa: ['Problema de pesquisa suficientemente descrito.'],
     objetivos: ['Objetivo geral suficientemente descrito.'],
-    fundamentacaoTeorica: ['Fundamentação teórica suficientemente descrita.'],
+    fundamentacaoTeorica: [paragrafoTeoria],
     metodologia: ['Metodologia proposta suficientemente descrita.'],
-    discussao: ['Discussão suficientemente descrita.'],
-    conclusao: ['Conclusão suficientemente descrita.'],
+    discussao: [paragrafoDiscussao],
+    conclusao: [paragrafoConclusao],
     limitacoes: ['Limitação suficientemente descrita.'],
     verificacoes: ['Verificação suficientemente descrita.'],
-    evidencias: [{
-      paragrafo,
+    evidencias: [paragrafo, paragrafoTeoria, paragrafoDiscussao, paragrafoConclusao].map(texto => ({
+      paragrafo: texto,
       fonteId: 'F1',
-      trecho: 'reports improved student outcomes in the observed sample'
-    }]
+      trecho
+    }))
   };
   assert.deepEqual(validarVinculoDeEvidencias(dados, [fonte]), new Set(['F1']));
   const evidencias = validarEvidenciasTextuais(dados, [fonte]);
