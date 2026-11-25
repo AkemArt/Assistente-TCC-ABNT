@@ -89,9 +89,20 @@ function buildTccPageCountMenu(customId) {
 }
 
 async function processTccProject(interaction, project, totalLabel) {
+  console.log(`📥 [${totalLabel}] Seleção de páginas recebida: ${project.pageCount}. Iniciando processamento.`);
+  await interaction.editReply({
+    content: '⏳ Recebi sua escolha de ' + project.pageCount + ' páginas. Estou registrando o projeto e iniciando a pesquisa acadêmica. Vou atualizar esta mensagem durante o processo.'
+  });
+
   let saved = { id: 'novo' };
   try {
-    saved = await tccProjects.saveProject(project);
+    console.log(`🗄️ [${totalLabel}] Salvando projeto no banco...`);
+    saved = await withTimeout(
+      tccProjects.saveProject(project),
+      30000,
+      `${totalLabel}_save_project`
+    );
+    console.log(`✅ [${totalLabel}] Projeto salvo no banco. ID: ${saved?.id || 'não retornado'}`);
     if (!saved || !saved.id || saved.id === 'novo' || saved.id === 'sem-id') {
       throw new Error('O banco não confirmou o salvamento do projeto.');
     }
@@ -106,11 +117,13 @@ async function processTccProject(interaction, project, totalLabel) {
   });
 
   // Uma única pesquisa e uma única redação servem de base aos dois documentos.
+  console.log(`🔎 [${totalLabel}] Iniciando pesquisa OpenAlex/Crossref e geração acadêmica.`);
   const pesquisa = await withTimeout(
     tccProjects.generateTccResearch(project),
     540000,
     `${totalLabel}_academic_research`
   );
+  console.log(`✅ [${totalLabel}] Pesquisa acadêmica concluída. Preparando os documentos.`);
 
   await interaction.editReply({
     content: '🧾 A pesquisa foi concluída e as afirmações citadas passaram pela conferência de evidências. Estou preparando o Word com a matriz de rastreabilidade e o PowerPoint com os links dos artigos.'
@@ -487,13 +500,17 @@ client.on(Events.InteractionCreate, async interaction => {
       }
       const project = { ...pending.project, pageCount: String(pageCount) };
       const totalLabel = `iniciar_tcc_${interaction.user.id}_${Date.now()}`;
+      console.log(`🧭 [${totalLabel}] Discord recebeu a seleção de ${pageCount} páginas.`);
       console.time(totalLabel);
       try {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         await processTccProject(interaction, project, totalLabel);
       } catch (error) {
         console.error(`❌ [${totalLabel}] Falha ao iniciar TCC:`, describeError(error), error);
-        await interaction.editReply({ content: '❌ Não consegui concluir a geração do TCC. Confira os registros e tente novamente.', embeds: [], files: [] }).catch(() => {});
+        const mensagem = /Timeout/.test(error?.message || '')
+          ? '⏱️ Esta etapa excedeu o tempo limite. O projeto pode ter sido registrado, mas a geração não foi concluída. Tente novamente em alguns minutos; se persistir, avise a equipe.'
+          : '❌ Não consegui concluir a geração do TCC nesta tentativa. Nenhum arquivo será apresentado como concluído. Tente novamente em alguns minutos.';
+        await interaction.editReply({ content: mensagem, embeds: [], files: [] }).catch(() => {});
       } finally {
         console.timeEnd(totalLabel);
       }
