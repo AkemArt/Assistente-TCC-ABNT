@@ -14,6 +14,10 @@ function obterParserPdf() {
   return PDFParse;
 }
 
+function normalizarDoi(valor) {
+  return String(valor || '').replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '').replace(/^doi:/i, '');
+}
+
 function urlHttpsPublica(valor) {
   try {
     const url = new URL(valor);
@@ -196,9 +200,11 @@ function mapearTrabalho(trabalho, termos) {
   const doi = trabalho.doi || null;
   const melhorLocalAberto = trabalho.best_oa_location || null;
   const localPrincipal = trabalho.primary_location || null;
-  const link = (doi && /^https?:\\/\\//i.test(doi) ? doi : (doi ? 'https://doi.org/' + doi.replace(/^doi:/i, '') : null)) ||
-    (melhorLocalAberto && melhorLocalAberto.landing_page_url) ||
+  const linkDoi = doi ? 'https://doi.org/' + normalizarDoi(doi) : null;
+  const linkPagina = (melhorLocalAberto && melhorLocalAberto.landing_page_url) ||
     (localPrincipal && localPrincipal.landing_page_url) || null;
+  const link = urlHttpsPublica(linkDoi) ? linkDoi :
+    (urlHttpsPublica(linkPagina) ? linkPagina : null);
   const pdfUrl = melhorLocalAberto && melhorLocalAberto.pdf_url ||
     (trabalho.locations || []).find(local => local && local.is_oa && local.pdf_url)?.pdf_url || null;
   const revista = (localPrincipal && localPrincipal.source && localPrincipal.source.display_name) ||
@@ -359,7 +365,7 @@ function formatarReferenciaABNT(fonte) {
   if (fonte.volume) dados.push('v. ' + fonte.volume);
   if (fonte.numero) dados.push('n. ' + fonte.numero);
   if (fonte.paginaInicial) dados.push('p. ' + fonte.paginaInicial + (fonte.paginaFinal ? '-' + fonte.paginaFinal : ''));
-  if (fonte.doi) dados.push('DOI: ' + fonte.doi.replace(/^https?:\\/\\/doi\\.org\\//i, ''));
+  if (fonte.doi) dados.push('DOI: ' + normalizarDoi(fonte.doi));
   const linkArtigo = fonte.urlPaginaArtigo || fonte.link;
   if (linkArtigo) dados.push('Disponível em: ' + linkArtigo);
   if (fonte.pdfUrl) dados.push('Texto completo em PDF: ' + fonte.pdfUrl);
