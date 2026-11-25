@@ -7,7 +7,8 @@ const {
   formatarReferenciaABNT,
   mapearTrabalho,
   verificarNoCrossref,
-  urlHttpsPublica
+  urlHttpsPublica,
+  tipoPublicacaoAcademicaAceito
 } = require('../pesquisa-academica');
 const {
   formatarCitacao,
@@ -393,4 +394,15 @@ test('permite HTTPS público e bloqueia endereços locais, reservados e esquemas
   assert.equal(urlHttpsPublica('https://[::1]/paper.pdf'), false);
   assert.equal(urlHttpsPublica('https://metadata.internal/latest'), false);
   assert.equal(urlHttpsPublica('https://user:pass@example.org/paper.pdf'), false);
+});
+
+test('aceita artigos, revisões e trabalhos de congresso e rejeita tipos não artigo', () => {
+  assert.equal(tipoPublicacaoAcademicaAceito('article'), true);
+  assert.equal(tipoPublicacaoAcademicaAceito('review'), true);
+  assert.equal(tipoPublicacaoAcademicaAceito('proceedings-article'), true);
+  assert.equal(tipoPublicacaoAcademicaAceito('book-chapter'), true);
+  assert.equal(tipoPublicacaoAcademicaAceito('dataset'), false);
+  assert.equal(tipoPublicacaoAcademicaAceito('editorial'), false);
+  assert.equal(tipoPublicacaoAcademicaAceito('dissertation'), false);
+  assert.equal(tipoPublicacaoAcademicaAceito(null), false);
 });
