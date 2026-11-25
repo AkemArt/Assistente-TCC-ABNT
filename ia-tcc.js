@@ -90,9 +90,9 @@ function validarEvidenciasTextuais(dados, fontes) {
   ];
   for (const secao of secoes) {
     for (const paragrafo of (dados[secao] || [])) {
-      const marcadores = String(paragrafo).match(/\\[F\\d+\\]/g) || [];
+      const marcadores = String(paragrafo).match(/\[F\d+\]/g) || [];
       for (const marcador of marcadores) {
-        const fonteId = 'F' + Number(marcador.match(/\\d+/)[0]);
+        const fonteId = 'F' + Number(marcador.match(/\d+/)[0]);
         const chave = String(paragrafo) + '::' + fonteId;
         paragrafosComCitacao.set(chave, { paragrafo: String(paragrafo), fonteId });
       }
@@ -143,7 +143,7 @@ function validarEvidenciasTextuais(dados, fontes) {
 async function verificarSustentacaoSemantica(ai, evidencias) {
   const lote = evidencias.map((item, indice) => ({
     indice,
-    afirmacao: item.paragrafo.replace(/\\[F\\d+\\]/g, '').trim(),
+    afirmacao: item.paragrafo.replace(/\[F\d+\]/g, '').trim(),
     tituloDaFonte: item.titulo,
     trechoLiteralDaFonte: item.trecho,
     textoDisponivelParaConferencia: item.textoFonte,
