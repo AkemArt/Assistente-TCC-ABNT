@@ -5,7 +5,15 @@ const { pesquisarTrabalhos, formatarReferenciaABNT } = require('./pesquisa-acade
 
 const aguardarGemini = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function erroCotaContaGemini(error) {
+  const status = String(error?.status || error?.code || '').toUpperCase();
+  const mensagem = String(error?.message || '');
+  return status === 'RESOURCE_EXHAUSTED' ||
+    /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|billing details/i.test(mensagem);
+}
+
 function erroGeminiTransitorio(error) {
+  if (erroCotaContaGemini(error)) return false;
   const status = String(error?.status || error?.code || '').toUpperCase();
   const mensagem = String(error?.message || '');
   return ['429', '500', '502', '503', '504', 'RESOURCE_EXHAUSTED', 'UNAVAILABLE', 'INTERNAL'].includes(status) ||
@@ -34,8 +42,10 @@ function erroPermiteFallbackModelo(error) {
     /\b404\b|NOT_FOUND|no longer available|is not found|not supported for generateContent/i.test(mensagem);
   // RESOURCE_EXHAUSTED/429 pode ser limite específico do modelo. Após esgotar
   // as tentativas com espera, experimenta o próximo modelo configurado.
-  const cotaDoModelo = status === '429' || status === 'RESOURCE_EXHAUSTED' ||
-    /HTTP\s*429|RESOURCE_EXHAUSTED|quota exceeded|rate limit/i.test(mensagem);
+  // Cota esgotada no projeto/conta não é específica do modelo: trocar de modelo
+  // só repete a mesma falha e mantém o Discord preso em "pensando".
+  if (erroCotaContaGemini(error)) return false;
+  const cotaDoModelo = status === '429' || /HTTP\s*429|rate limit/i.test(mensagem);
   return modeloNaoDisponivel || cotaDoModelo;
 }
 
