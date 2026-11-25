@@ -139,9 +139,11 @@ async function processTccProject(interaction, project, totalLabel) {
   );
   console.log(`✅ [${totalLabel}] Pesquisa acadêmica concluída. Preparando os documentos.`);
 
-  await interaction.editReply({
-    content: '🧾 A pesquisa foi concluída e as afirmações citadas passaram pela conferência de evidências. Estou preparando o Word com a matriz de rastreabilidade e o PowerPoint com os links dos artigos.'
-  });
+  await safeProgress(
+    interaction,
+    '🧾 A pesquisa foi concluída e as afirmações citadas passaram pela conferência de evidências. Estou preparando o Word com a matriz de rastreabilidade e o PowerPoint com os links dos artigos.',
+    totalLabel
+  );
 
   const [docxBuffer, pptxBuffer] = await Promise.all([
     tccProjects.generateTccDocx(project, pesquisa),
@@ -156,9 +158,11 @@ async function processTccProject(interaction, project, totalLabel) {
     stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'document_generated' })
   ]);
 
-  await interaction.editReply({
-    content: '📤 Os documentos foram gerados. Estou enviando os arquivos agora.'
-  });
+  await safeProgress(
+    interaction,
+    '📤 Os documentos foram gerados. Estou enviando os arquivos agora.',
+    totalLabel
+  );
 
   const files = [
     new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
@@ -521,9 +525,12 @@ client.on(Events.InteractionCreate, async interaction => {
         await processTccProject(interaction, project, totalLabel);
       } catch (error) {
         console.error(`❌ [${totalLabel}] Falha ao iniciar TCC:`, describeError(error), error);
-        const mensagem = /Timeout/.test(error?.message || '')
-          ? '⏱️ Esta etapa excedeu o tempo limite. O projeto pode ter sido registrado, mas a geração não foi concluída. Tente novamente em alguns minutos; se persistir, avise a equipe.'
-          : '❌ Não consegui concluir a geração do TCC nesta tentativa. Nenhum arquivo será apresentado como concluído. Tente novamente em alguns minutos.';
+        const erroTexto = String(error?.message || '');
+        const mensagem = /429|limite de requisições|OpenAlex/i.test(erroTexto)
+          ? '⚠️ O serviço de pesquisa acadêmica está temporariamente limitando consultas. Seu projeto foi registrado, mas nenhum documento foi gerado. Aguarde alguns minutos antes de tentar novamente.'
+          : /Timeout/.test(erroTexto)
+            ? '⏱️ A pesquisa ou geração excedeu o tempo limite. Seu projeto pode ter sido registrado, mas nenhum documento foi concluído. Tente novamente mais tarde.'
+            : '❌ Não consegui concluir a geração do TCC nesta tentativa. Seu projeto pode ter sido registrado, mas nenhum arquivo será apresentado como concluído. Consulte os registros ou tente novamente mais tarde.';
         await interaction.editReply({ content: mensagem, embeds: [], files: [] }).catch(() => {});
       } finally {
         console.timeEnd(totalLabel);
