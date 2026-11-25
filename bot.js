@@ -803,8 +803,7 @@ client.on(Events.InteractionCreate, async interaction => {
         course: interaction.fields.getTextInputValue('tcc_curso_instituicao').trim(),
         courseAndInstitution: interaction.fields.getTextInputValue('tcc_curso_instituicao').trim(),
         title: interaction.fields.getTextInputValue('tcc_titulo').trim(),
-        objective: interaction.fields.getTextInputValue('tcc_objetivo').trim(),
-        problem: interaction.fields.getTextInputValue('tcc_objetivo').trim()
+        objective: interaction.fields.getTextInputValue('tcc_objetivo').trim()
       };
 
       const customId = `tcc_pages_${interaction.user.id}_${Date.now()}`;
