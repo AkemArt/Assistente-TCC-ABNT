@@ -14,26 +14,55 @@ function obterParserPdf() {
   return PDFParse;
 }
 
-function extrairTextoXml(xml) {
-  return String(xml || '')
-    .replace(/<\\/(?:p|head|div|ab|item|formula|fig|table|row|cell)>/gi, '\\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\\d+);/g, (_, num) => String.fromCodePoint(Number(num)))
-    .replace(/\\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_FULLTEXT_CHARS);
+function urlHttpsPublica(valor) {
+  try {
+    const url = new URL(valor);
+    if (url.protocol !== 'https:') return false;
+    const host = url.hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
+    if (/^(127\.|10\.|192\.168\.|169\.254\.)/.test(host)) return false;
+    const partes = host.split('.');
+    if (partes.length === 4 && partes.every(p => /^\d+$/.test(p))) {
+      const a = Number(partes[0]);
+      const b = Number(partes[1]);
+      if (a === 0 || a === 10 || a === 127 || a >= 224 ||
+          (a === 172 && b >= 16 && b <= 31) ||
+          (a === 169 && b === 254) ||
+          (a === 192 && b === 168)) return false;
+    }
+    if (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function lerCorpoLimitado(resposta, limite) {
+  if (!resposta.body) throw new Error('Resposta sem corpo para leitura.');
+  const leitor = resposta.body.getReader();
+  const partes = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await leitor.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limite) {
+        await leitor.cancel();
+        throw new Error('PDF excede o limite de tamanho permitido.');
+      }
+      partes.push(Buffer.from(value));
+    }
+  } finally {
+    leitor.releaseLock();
+  }
+  return Buffer.concat(partes, total);
 }
 
 async function obterTextoCompleto(fonte) {
   const url = fonte.pdfUrl;
-  if (!url || !/^https:\\/\\//i.test(url)) {
-    return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF aberto não localizado' };
+  if (!urlHttpsPublica(url)) {
+    return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF aberto não localizado ou endereço não permitido' };
   }
 
   try {
@@ -47,13 +76,15 @@ async function obterTextoCompleto(fonte) {
     }
     const tipo = String(resposta.headers.get('content-type') || '').toLowerCase();
     const tamanho = Number(resposta.headers.get('content-length') || 0);
-    if (tamanho > MAX_PDF_BYTES || (!tipo.includes('pdf') && !tipo.includes('octet-stream'))) {
+    if (tamanho > MAX_PDF_BYTES ||
+        (tipo && !tipo.includes('pdf') && !tipo.includes('octet-stream') && !tipo.includes('application/binary'))) {
       return { ...fonte, textoCompleto: null, statusTextoCompleto: 'Formato ou tamanho do arquivo não permitido' };
     }
-    const buffer = Buffer.from(await resposta.arrayBuffer());
-    if (buffer.length > MAX_PDF_BYTES || buffer.length < 5 || buffer.subarray(0, 5).toString() !== '%PDF-') {
-      return { ...fonte, textoCompleto: null, statusTextoCompleto: 'O endereço não retornou um PDF válido ou excedeu o limite de tamanho' };
+    const buffer = await lerCorpoLimitado(resposta, MAX_PDF_BYTES);
+    if (buffer.length < 5 || buffer.subarray(0, 5).toString() !== '%PDF-') {
+      return { ...fonte, textoCompleto: null, statusTextoCompleto: 'O endereço não retornou um PDF válido' };
     }
+
     const Parser = obterParserPdf();
     const parser = new Parser({ data: buffer });
     let resultado;
@@ -62,7 +93,7 @@ async function obterTextoCompleto(fonte) {
     } finally {
       await parser.destroy();
     }
-    const texto = String(resultado.text || '').replace(/\\s+/g, ' ').trim().slice(0, MAX_FULLTEXT_CHARS);
+    const texto = String(resultado.text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_FULLTEXT_CHARS);
     if (texto.length < 1000) {
       return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF sem texto extraível suficiente (possível documento digitalizado)' };
     }
