@@ -296,7 +296,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
       'Periódico/fonte: ' + (fonte.revista || 'Não informado'),
       'DOI/link: ' + (fonte.doi || fonte.link || 'Não informado'),
       'Página do artigo: ' + (fonte.urlPaginaArtigo || fonte.link || 'Não informada'),
-      'PDF em acesso aberto: ' + (fonte.pdfUrl || 'Não localizado'),
+      'PDF em acesso aberto: ' + (fonte.pdfUrlVerificado || fonte.pdfUrl || 'Não localizado'),
       'Situação do texto completo: ' + (fonte.statusTextoCompleto || 'Não verificada'),
       'Conferência dos metadados: ' + (fonte.verificacaoCrossref || 'Não verificada'),
       'Trechos relevantes do texto integral: ' + (fonte.textoCompleto ? selecionarTrechosRelevantes(fonte.textoCompleto, tema, objetivo) : 'Texto completo não disponível. Resumo recuperado: ' + (fonte.resumo || 'Resumo indisponível; não utilizar para sustentar afirmações.'))
@@ -413,8 +413,9 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'Extensão solicitada: aproximadamente ' + pageCount + ' páginas de conteúdo principal.',
     'Palavras nas seções principais: ' + palavrasGeradas + ' (meta aproximada: ' + palavrasEsperadas + ').',
     'Base consultada: OpenAlex (metadados, resumos e textos completos em PDF aberto quando localizados).',
-    'Textos completos extraídos: ' + fontes.filter(f => f.textoCompleto).length + ' de ' + fontes.length + '.',
-    'Fontes sem texto completo: ' + fontes.filter(f => !f.textoCompleto).map(f => f.idFonte + ' — ' + (f.statusTextoCompleto || 'indisponível')).join('; '),
+    'Textos completos extraídos e analisados: ' + fontes.filter(f => f.textoCompleto).length + ' de ' + fontes.length + '.',
+    'Fontes analisadas somente pelo resumo: ' + fontes.filter(f => !f.textoCompleto && f.resumo).length + '.',
+    'Situação individual das fontes: ' + fontes.map(f => f.idFonte + ' — ' + (f.textoCompleto ? 'texto integral extraído' : f.resumo ? 'somente resumo disponível' : 'sem conteúdo para análise') + ' (' + (f.statusTextoCompleto || 'PDF não consultado') + ')').join('; '),
     '',
     'ATENÇÃO: a auditoria semântica é uma triagem automatizada, não uma certificação científica. Quando o texto integral não foi obtido, a análise se limita ao resumo e não equivale à leitura completa do artigo. Consulte o link da fonte e confirme cada argumento antes da entrega acadêmica.'
   ].join('\n');
