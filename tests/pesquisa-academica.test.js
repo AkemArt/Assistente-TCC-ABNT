@@ -103,3 +103,57 @@ test('ordena a bibliografia por sobrenome do primeiro autor e título', () => {
     'Pesquisa Z'
   ]);
 });
+
+test('gera DOCX e PPTX com referência e links sem acessar banco de dados', async () => {
+  const { generateTccDocx, generateTccPptx } = require('../tcc-projects');
+  const fonte = {
+    idFonte: 'F1',
+    openAlexId: 'https://openalex.org/W123',
+    titulo: 'Estudo demonstrativo',
+    autores: ['Ada Lovelace'],
+    ano: 2024,
+    revista: 'Revista de Exemplo',
+    doi: '10.1234/exemplo',
+    link: 'https://example.org/article',
+    urlPaginaArtigo: 'https://example.org/article',
+    pdfUrl: 'https://example.org/article.pdf',
+    pdfUrlVerificado: 'https://example.org/article.pdf',
+    textoCompleto: 'Texto de teste extraído do PDF.',
+    statusTextoCompleto: 'Texto extraído de PDF em acesso aberto',
+    verificacaoCrossref: 'Confirmado no Crossref'
+  };
+  const pesquisa = {
+    secoes: {
+      introducao: ['Introdução fundamentada para o teste.'],
+      problemaPesquisa: ['Problema de pesquisa do teste.'],
+      objetivos: ['Objetivo geral do teste.'],
+      fundamentacaoTeorica: ['Fundamentação teórica do teste.'],
+      metodologia: ['Metodologia proposta para o teste.'],
+      discussao: ['Discussão acadêmica do teste.'],
+      conclusao: ['Conclusão coerente com o objetivo do teste.'],
+      limitacoes: ['Limitação do teste.'],
+      verificacoes: ['Conferir o artigo original.']
+    },
+    fontes: [fonte],
+    fontesCitadas: [fonte],
+    referencias: ['LOVELACE, Ada. Estudo demonstrativo. Revista de Exemplo. 2024.'],
+    relatorioPesquisa: 'Relatório de pesquisa de teste.'
+  };
+  const projeto = {
+    studentName: 'Estudante de Teste',
+    advisorName: 'Orientador de Teste',
+    courseAndInstitution: 'ADS - Instituição de Teste',
+    title: 'Projeto de teste acadêmico',
+    objective: 'Avaliar a geração dos documentos.',
+    pageCount: 10,
+    city: 'Caraguatatuba',
+    year: 2026
+  };
+
+  const docx = await generateTccDocx(projeto, pesquisa);
+  const pptx = await generateTccPptx(projeto, pesquisa);
+  assert.ok(Buffer.isBuffer(docx));
+  assert.ok(docx.length > 1000);
+  assert.ok(Buffer.isBuffer(pptx));
+  assert.ok(pptx.length > 1000);
+});
