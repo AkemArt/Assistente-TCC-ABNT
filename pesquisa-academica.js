@@ -403,8 +403,20 @@ function formatarReferenciaABNT(fonte) {
   if (fonte.paginaInicial) dados.push('p. ' + fonte.paginaInicial + (fonte.paginaFinal ? '-' + fonte.paginaFinal : ''));
   if (fonte.doi) dados.push('DOI: ' + normalizarDoi(fonte.doi));
   const linkArtigo = fonte.urlPaginaArtigo || fonte.link;
-  if (linkArtigo) dados.push('Disponível em: ' + linkArtigo);
-  if (fonte.pdfUrl) dados.push('Texto completo em PDF: ' + fonte.pdfUrl);
+  if (linkArtigo) {
+    dados.push('Disponível em: ' + linkArtigo);
+    const partesData = new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'America/Sao_Paulo'
+    }).formatToParts(new Date());
+    const dataAcesso = Object.fromEntries(partesData.map(parte => [parte.type, parte.value]));
+    dados.push('Acesso em: ' + dataAcesso.day + ' ' + dataAcesso.month + ' ' + dataAcesso.year);
+  }
+  if (fonte.pdfUrlVerificado || fonte.pdfUrl) {
+    dados.push('PDF em acesso aberto: ' + (fonte.pdfUrlVerificado || fonte.pdfUrl));
+  }
   return dados.filter(Boolean).join('. ') + '.';
 }
 
