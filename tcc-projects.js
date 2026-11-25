@@ -1,13 +1,28 @@
+const db = require('./database');
 const {
   Document,
   Packer,
   Paragraph,
   TextRun,
+  HeadingLevel,
   AlignmentType,
   PageBreak
 } = require('docx');
 const PptxGenJS = require('pptxgenjs');
-const db = require('./database');
+
+let pesquisaAcademica = null;
+try {
+  pesquisaAcademica = require('./pesquisa-academica');
+} catch (_) {
+  pesquisaAcademica = null;
+}
+
+let GoogleGenAI = null;
+try {
+  ({ GoogleGenAI } = require('@google/genai'));
+} catch (_) {
+  GoogleGenAI = null;
+}
 
 async function initTccProjects() {
   if (!process.env.DATABASE_URL) {
@@ -19,390 +34,344 @@ async function initTccProjects() {
       id BIGSERIAL PRIMARY KEY,
       discord_user_id VARCHAR(32) NOT NULL,
       discord_username VARCHAR(100) NOT NULL,
-      guild_id VARCHAR(32),
-      student_name VARCHAR(100) NOT NULL,
-      advisor_name VARCHAR(100) NOT NULL,
-      institution VARCHAR(120) NOT NULL,
-      course VARCHAR(100) NOT NULL,
-      title VARCHAR(250) NOT NULL,
+      guild_id VARCHAR(64),
+      student_name VARCHAR(150) NOT NULL,
+      advisor_name VARCHAR(150) NOT NULL,
+      institution_course VARCHAR(200) NOT NULL,
+      title TEXT NOT NULL,
+      page_count VARCHAR(80) NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE INDEX IF NOT EXISTS idx_tcc_projects_user_created
-      ON tcc_projects (discord_user_id, created_at DESC);
   `);
 
-  console.log('📚 Tabela de projetos de TCC verificada.');
+  console.log('📚 Tabela de projetos de TCC (tcc_projects) verificada.');
 }
 
-async function saveProject({
-  userId,
-  username,
-  guildId,
-  studentName,
-  advisorName,
-  institution,
-  course,
-  title
-}) {
-  const result = await db.query(
+async function saveProject(project) {
+  const institutionCourse =
+    project.courseAndInstitution ||
+    [project.course, project.institution].filter(Boolean).join(' - ') ||
+    'Curso / Instituição';
+
+  const res = await db.query(
     `INSERT INTO tcc_projects
-      (discord_user_id, discord_username, guild_id, student_name, advisor_name, institution, course, title)
+      (discord_user_id, discord_username, guild_id, student_name, advisor_name, institution_course, title, page_count)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id, created_at`,
     [
-      String(userId),
-      String(username || 'desconhecido').slice(0, 100),
-      guildId ? String(guildId) : null,
-      String(studentName || '').trim(),
-      String(advisorName || '').trim(),
-      String(institution || '').trim(),
-      String(course || '').trim(),
-      String(title || '').trim()
+      String(project.userId),
+      String(project.username || 'aluno').slice(0, 100),
+      project.guildId ? String(project.guildId) : null,
+      String(project.studentName).slice(0, 150),
+      String(project.advisorName).slice(0, 150),
+      String(institutionCourse).slice(0, 200),
+      String(project.title).slice(0, 1000),
+      String(project.pageCount || project.focusNote || '10').slice(0, 80)
     ]
   );
 
-  return result.rows[0];
+  return res.rows[0];
 }
 
-function parseCourseAndInstitution(rawCourseInst, fallbackCourse, fallbackInst) {
-  const text = String(rawCourseInst || '').trim();
-  if (!text) {
-    return {
-      course: String(fallbackCourse || 'Curso de Graduação').trim(),
-      institution: String(fallbackInst || 'Instituição de Ensino').trim()
-    };
+function reconstructAbstract(invertedIndex) {
+  if (!invertedIndex || typeof invertedIndex !== 'object') return '';
+  const pairs = [];
+  for (const [word, positions] of Object.entries(invertedIndex)) {
+    if (Array.isArray(positions)) {
+      for (const pos of positions) {
+        pairs.push([pos, word]);
+      }
+    }
   }
+  pairs.sort((a, b) => a[0] - b[0]);
+  return pairs.map(p => p[1]).join(' ').trim();
+}
 
-  const separators = [' - ', ' – ', ' — ', ' / ', '|', ';'];
-  for (const sep of separators) {
-    if (text.includes(sep)) {
-      const [left, ...rest] = text.split(sep);
-      const right = rest.join(sep).trim();
-      if (left.trim() && right) {
-        return {
-          course: left.trim(),
-          institution: right
-        };
+async function fetchRealArticles(project) {
+  const queryText = `${project.title} ${project.courseAndInstitution || project.course || ''}`.trim();
+
+  if (pesquisaAcademica) {
+    const fn =
+      pesquisaAcademica.buscarArtigos ||
+      pesquisaAcademica.pesquisarArtigos ||
+      pesquisaAcademica.buscarTrabalhos ||
+      pesquisaAcademica.pesquisar;
+    if (typeof fn === 'function') {
+      try {
+        const res = await fn({ tema: project.title, curso: project.course || project.courseAndInstitution || '', limite: 6 });
+        const list = Array.isArray(res) ? res : (res?.artigos || res?.fontes || res?.results || []);
+        if (list.length > 0) {
+          return list.slice(0, 6).map(item => ({
+            title: item.title || item.titulo || 'Artigo científico',
+            authors: Array.isArray(item.authors || item.autores)
+              ? (item.authors || item.autores).map(a => (typeof a === 'string' ? a : a.name)).filter(Boolean)
+              : [item.author || item.autor].filter(Boolean),
+            year: item.year || item.ano || item.publication_year || 's.d.',
+            venue: item.venue || item.journal || item.revista || 'Periódico científico',
+            doiOrUrl: item.doi || item.url || item.link || '',
+            abstract: item.abstract || item.resumo || ''
+          }));
+        }
+      } catch (err) {
+        console.warn('⚠️ Falha no módulo pesquisa-academica, tentando OpenAlex direto:', err?.message || err);
       }
     }
   }
 
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
+    const url = `https://api.openalex.org/works?search=${encodeURIComponent(queryText)}&per-page=6`;
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) return [];
+
+    const data = await resp.json();
+    const works = Array.isArray(data?.results) ? data.results : [];
+    return works.map(w => {
+      const authors = Array.isArray(w.authorships)
+        ? w.authorships.map(a => a?.author?.display_name).filter(Boolean).slice(0, 4)
+        : [];
+      const abstract = reconstructAbstract(w.abstract_inverted_index);
+      const venue = w.primary_location?.source?.display_name || 'Base OpenAlex';
+      const doiOrUrl = w.doi || w.primary_location?.landing_page_url || '';
+      return {
+        title: w.title || 'Trabalho acadêmico',
+        authors,
+        year: w.publication_year || 's.d.',
+        venue,
+        doiOrUrl,
+        abstract: abstract.slice(0, 500)
+      };
+    });
+  } catch (err) {
+    console.warn('⚠️ Não foi possível consultar a OpenAlex:', err?.message || err);
+    return [];
+  }
+}
+
+function getThemePalette(project) {
+  const text = `${project.title || ''} ${project.courseAndInstitution || ''}`.toLowerCase();
+  if (text.includes('finan') || text.includes('econ') || text.includes('contab') || text.includes('invest')) {
+    return { primary: '14532D', secondary: '166534', accent: 'CA8A04', label: 'Finanças e Economia' };
+  }
+  if (text.includes('ambient') || text.includes('sustent') || text.includes('clima') || text.includes('ecolog')) {
+    return { primary: '065F46', secondary: '047857', accent: '0D9488', label: 'Meio Ambiente e Sustentabilidade' };
+  }
+  if (text.includes('saud') || text.includes('med') || text.includes('enferm') || text.includes('psic')) {
+    return { primary: '0F4C81', secondary: '1D4ED8', accent: '0284C7', label: 'Saúde e Ciências Humanas' };
+  }
+  return { primary: '1E293B', secondary: '334155', accent: '2563EB', label: 'Tecnologia e Análise Aplicada' };
+}
+
+function buildFallbackContent(project, articles) {
+  const title = project.title;
+  const course = project.courseAndInstitution || project.course || 'o curso';
+  const advisor = project.advisorName;
+  const student = project.studentName;
+  const pages = project.pageCount || '10';
+
+  const articleSummary = articles.length
+    ? articles
+        .slice(0, 3)
+        .map(a => `${a.authors.join(', ') || 'Autoria não informada'} (${a.year}) investigou "${a.title}" em ${a.venue}.`)
+        .join(' ')
+    : `A literatura especializada em ${course} aponta a necessidade de alinhar modelos analíticos e evidências empíricas ao contexto específico de "${title}".`;
+
+  const refs = articles.length
+    ? articles.map(a => {
+        const aut = a.authors.length ? a.authors.join('; ').toUpperCase() : 'AUTOR DESCONHECIDO';
+        return `${aut}. ${a.title}. ${a.venue}, ${a.year}.${a.doiOrUrl ? ` Disponível em: ${a.doiOrUrl}.` : ''}`;
+      })
+    : [
+        'ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. NBR 14724: informação e documentação — trabalhos acadêmicos — apresentação. Rio de Janeiro: ABNT, 2011.',
+        'ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. NBR 6023: informação e documentação — referências — elaboração. Rio de Janeiro: ABNT, 2018.'
+      ];
+
   return {
-    course: text,
-    institution: String(fallbackInst || text).trim()
+    introducao: [
+      `Este trabalho investiga "${title}" no âmbito de ${course}, sob orientação de ${advisor}, com estrutura planejada para cerca de ${pages} páginas.`,
+      `Ao tratar de "${title}", busca-se examinar como fundamentos teóricos, dados confiáveis e critérios de decisão se articulam na prática profissional contemporânea.`,
+      `Problema de pesquisa: de que maneira os conceitos e evidências associados a "${title}" podem ser aplicados de forma rigorosa e verificável para resolver desafios concretos da área?`,
+      `Proposta de solução: construir um percurso analítico estruturado em levantamento bibliográfico específico, definição de critérios de avaliação e aplicação orientada ao cenário do estudo.`
+    ],
+    objetivos: [
+      `Objetivo geral: analisar "${title}" à luz de estudos científicos e referências pertinentes ao tema, apresentando uma abordagem fundamentada para o problema investigado.`,
+      `Objetivos específicos: (a) mapear estudos e conceitos centrais relacionados a "${title}"; (b) identificar entraves práticos e limitações recorrentes na área; (c) propor diretrizes aplicáveis ao contexto investigado; e (d) sintetizar conclusões e recomendações para pesquisas futuras.`
+    ],
+    fundamentacaoMetodologia: [
+      `A fundamentação teórica sobre "${title}" apoia-se em estudos publicados e na análise crítica das abordagens aplicadas ao tema. ${articleSummary}`,
+      `Para conferir consistência argumentativa, citações e referências devem dialogar diretamente com o domínio específico do trabalho — seja em finanças, sustentabilidade ambiental, gestão ou tecnologia — evitando generalizações desconectadas do objeto de estudo.`,
+      `Metodologicamente, o estudo adota abordagem qualitativa e analítica com base em revisão bibliográfica direcionada e exame crítico de fontes científicas, cabendo ao autor (${student}) complementar com dados próprios e validação junto a ${advisor}.`
+    ],
+    conclusao: [
+      `Os elementos reunidos sobre "${title}" demonstram que a solidez de um TCC depende da aderência entre o problema delimitado, as evidências científicas consultadas e a clareza da argumentação.`,
+      `Recomenda-se que ${student} aprofunde a análise crítica das fontes recuperadas e valide os encaminhamentos finais com ${advisor} antes da entrega definitiva.`
+    ],
+    referencias: refs
   };
 }
 
-function parsePageCount(rawPages) {
-  const match = String(rawPages || '').match(/\d+/);
-  const num = match ? parseInt(match[0], 10) : 10;
-  if (!Number.isFinite(num) || num < 5) return 10;
-  if (num > 60) return 60;
-  return num;
-}
-
-function getThemePalette(title, course) {
-  const combined = `${title} ${course}`.toLowerCase();
-
-  if (
-    combined.includes('saúde') ||
-    combined.includes('saude') ||
-    combined.includes('enferm') ||
-    combined.includes('medicin') ||
-    combined.includes('psicolog') ||
-    combined.includes('biolog')
-  ) {
-    return {
-      primary: '0F766E',
-      secondary: '134E4A',
-      accent: '14B8A6',
-      lightBg: 'F0FDFA',
-      textDark: '0F172A',
-      textMuted: '475569'
-    };
+async function generateAcademicBodyWithAI(project, articles) {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!GoogleGenAI || !apiKey) {
+    return buildFallbackContent(project, articles);
   }
 
-  if (
-    combined.includes('agro') ||
-    combined.includes('ambient') ||
-    combined.includes('sustent') ||
-    combined.includes('ecolog')
-  ) {
-    return {
-      primary: '166534',
-      secondary: '14532D',
-      accent: '22C55E',
-      lightBg: 'F0FDF4',
-      textDark: '0F172A',
-      textMuted: '475569'
-    };
+  const ai = new GoogleGenAI({ apiKey });
+  const articlesText = articles.length
+    ? articles
+        .map(
+          (a, i) =>
+            `[${i + 1}] Título: ${a.title} | Autores: ${a.authors.join(', ') || 'N/I'} | Ano: ${a.year} | Fonte: ${a.venue} | Link/DOI: ${a.doiOrUrl || 'N/I'} | Resumo: ${a.abstract || 'Sem resumo disponível'}`
+        )
+        .join('\n')
+    : 'Nenhum artigo externo retornado nesta consulta; utilize apenas referências reais consolidadas do domínio do tema e normas técnicas.';
+
+  const prompt = `Você é um redator acadêmico rigoroso em língua portuguesa.
+Redija o conteúdo específico e NÃO padronizado para um trabalho acadêmico com os seguintes dados:
+- Aluno(a): ${project.studentName}
+- Curso / Instituição: ${project.courseAndInstitution || project.course || 'Não informado'}
+- Orientador(a): ${project.advisorName}
+- Tema / Título: ${project.title}
+- Quantidade de páginas desejada: ${project.pageCount || '10'}
+
+Artigos reais recuperados na pesquisa:
+${articlesText}
+
+Regras obrigatórias:
+1. Escreva texto original, fluido e específico para o tema "${project.title}". NUNCA use frases genéricas repetitivas como "No desdobramento de... (etapa 1)".
+2. Use citações e menções a estudiosos, pesquisadores ou figuras reconhecidas que façam sentido direto para o tema específico (por exemplo, teóricos/pesquisadores de finanças ou economia quando o tema for finanças; cientistas ou lideranças ambientais quando o tema for meio ambiente; autores da área técnica quando o tema for computação/IA). Nunca invente citações falsas nem artigos fictícios.
+3. Priorize os artigos reais listados acima na fundamentação e na lista de referências.
+4. Responda APENAS em JSON válido com exatamente estas chaves:
+{
+  "introducao": ["parágrafo 1", "parágrafo 2", "..."],
+  "objetivos": ["parágrafo objetivo geral", "parágrafo objetivos específicos"],
+  "fundamentacaoMetodologia": ["parágrafo 1", "parágrafo 2", "..."],
+  "conclusao": ["parágrafo 1", "parágrafo 2"],
+  "referencias": ["referência 1", "referência 2"]
+}`;
+
+  try {
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0.45
+      }
+    });
+
+    const rawText = (response?.text || '').trim();
+    const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(cleanJson);
+
+    if (
+      Array.isArray(parsed.introducao) &&
+      Array.isArray(parsed.objetivos) &&
+      Array.isArray(parsed.fundamentacaoMetodologia) &&
+      Array.isArray(parsed.conclusao) &&
+      Array.isArray(parsed.referencias)
+    ) {
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('⚠️ Falha na geração por IA do corpo do TCC, usando redação adaptativa:', err?.message || err);
   }
 
-  if (
-    combined.includes('direito') ||
-    combined.includes('admin') ||
-    combined.includes('contab') ||
-    combined.includes('gest') ||
-    combined.includes('negoc')
-  ) {
-    return {
-      primary: '1E3A8A',
-      secondary: '172554',
-      accent: 'D97706',
-      lightBg: 'EFF6FF',
-      textDark: '0F172A',
-      textMuted: '475569'
-    };
-  }
-
-  return {
-    primary: '1D4ED8',
-    secondary: '0F172A',
-    accent: '38BDF8',
-    lightBg: 'F8FAFC',
-    textDark: '0F172A',
-    textMuted: '475569'
-  };
+  return buildFallbackContent(project, articles);
 }
 
-function centered(text, options = {}) {
+function abntParagraph(text, { bold = false, align = AlignmentType.JUSTIFIED, firstLineIndent = 708, spaceAfter = 120 } = {}) {
   return new Paragraph({
-    alignment: AlignmentType.CENTER,
-    spacing: { after: options.after ?? 240, line: options.line ?? 240 },
+    alignment: align,
+    indent: firstLineIndent ? { firstLine: firstLineIndent } : undefined,
+    spacing: { line: 360, after: spaceAfter },
     children: [
       new TextRun({
-        text: String(text || ''),
-        bold: Boolean(options.bold),
-        size: options.size ?? 24,
-        font: 'Times New Roman'
-      })
-    ]
-  });
-}
-
-function natureBlock(text, options = {}) {
-  return new Paragraph({
-    alignment: AlignmentType.LEFT,
-    indent: { left: 4535 }, // ~8 cm deslocado à direita conforme padrão ABNT de folha de rosto
-    spacing: { after: options.after ?? 240, line: options.line ?? 240 },
-    children: [
-      new TextRun({
-        text: String(text || ''),
-        size: 20, // 10pt na nota descritiva da folha de rosto
-        font: 'Times New Roman'
-      })
-    ]
-  });
-}
-
-function body(text, options = {}) {
-  return new Paragraph({
-    alignment: AlignmentType.JUSTIFIED,
-    indent: { firstLine: 709 }, // ~1,25 cm recuo de primeira linha
-    spacing: { after: options.after ?? 120, line: 360 }, // espaçamento 1,5 entre linhas
-    children: [
-      new TextRun({
-        text: String(text || ''),
-        size: 24, // 12pt
-        font: 'Times New Roman'
-      })
-    ]
-  });
-}
-
-function quoteBlock(text) {
-  return new Paragraph({
-    alignment: AlignmentType.JUSTIFIED,
-    indent: { left: 2268 }, // 4 cm recuo à esquerda para citação longa ABNT
-    spacing: { before: 120, after: 120, line: 240 }, // espaçamento simples e fonte 10pt
-    children: [
-      new TextRun({
-        text: String(text || ''),
-        size: 20,
-        font: 'Times New Roman'
-      })
-    ]
-  });
-}
-
-function sectionHeading(title) {
-  return new Paragraph({
-    heading: 'Heading1',
-    spacing: { before: 240, after: 120, line: 360 },
-    children: [
-      new TextRun({
-        text: String(title || '').toUpperCase(),
-        bold: true,
+        text: String(text),
         font: 'Times New Roman',
-        size: 24
+        size: 24,
+        bold
       })
     ]
   });
 }
 
-function referenceItem(text) {
+function sectionHeading(text) {
   return new Paragraph({
+    heading: HeadingLevel.HEADING_1,
     alignment: AlignmentType.LEFT,
-    spacing: { after: 240, line: 240 }, // espaçamento simples entre linhas e espaço entre referências
+    spacing: { before: 240, after: 140, line: 360 },
     children: [
       new TextRun({
-        text: String(text || ''),
+        text: String(text).toUpperCase(),
+        font: 'Times New Roman',
         size: 24,
-        font: 'Times New Roman'
+        bold: true
       })
     ]
   });
-}
-
-function buildExpansionParagraphs(topicTitle, targetPages) {
-  const extraCount = Math.max(0, Math.round((targetPages - 8) / 2));
-  const paragraphs = [];
-
-  for (let i = 1; i <= extraCount; i += 1) {
-    paragraphs.push(
-      body(
-        `No desdobramento de ${topicTitle} (etapa ${i}), observa-se que a padronização de processos e o registro sistemático de evidências reduzem falhas operacionais e ampliam a transparência institucional. Conforme apontam Gil (2019) e Lakatos e Marconi (2021), a articulação entre fundamentação teórica e análise criteriosa permite validar hipóteses com maior rigor acadêmico.`
-      )
-    );
-  }
-
-  return paragraphs;
 }
 
 async function generateTccDocx(project) {
-  const currentYear = new Date().getFullYear();
-  const parsed = parseCourseAndInstitution(
-    project.courseAndInstitution || project.course,
-    project.course,
-    project.institution
-  );
-  const targetPages = parsePageCount(project.pageCount);
-  const focusNote = String(project.focusNote || '').trim();
-
-  const institution = parsed.institution.toUpperCase();
-  const studentName = String(project.studentName || '').trim().toUpperCase();
-  const title = String(project.title || '').trim().toUpperCase();
-  const course = parsed.course;
-  const advisorName = String(project.advisorName || '').trim();
-  const city = String(project.city || 'Caraguatatuba').trim();
+  const institutionCourse = project.courseAndInstitution || project.course || 'CURSO E INSTITUIÇÃO';
+  const articles = await fetchRealArticles(project);
+  const content = await generateAcademicBodyWithAI(project, articles);
 
   const children = [
-    // CAPA (ABNT NBR 14724)
-    centered(institution, { bold: true, after: 480 }),
-    centered(course.toUpperCase(), { bold: true, after: 1200 }),
-    centered(studentName, { after: 1800 }),
-    centered(title, { bold: true, after: 2200 }),
-    centered(city.toUpperCase(), { after: 120 }),
-    centered(String(currentYear)),
-
-    new Paragraph({ children: [new PageBreak()] }),
-
-    // FOLHA DE ROSTO (ABNT NBR 14724)
-    centered(studentName, { after: 1200 }),
-    centered(title, { bold: true, after: 1200 }),
-    natureBlock(
-      `Trabalho de Conclusão de Curso apresentado ao curso de ${course}, da instituição ${institution}, como requisito parcial para obtenção de grau/conclusão do curso (estrutura planejada para aproximadamente ${targetPages} páginas).`,
-      { after: 240 }
-    ),
-    natureBlock(`Orientador(a): ${advisorName}`, { after: 2000 }),
-    centered(city.toUpperCase(), { after: 120 }),
-    centered(String(currentYear)),
-
-    new Paragraph({ children: [new PageBreak()] }),
-
-    // 1 INTRODUÇÃO, PROBLEMA E SOLUÇÃO
-    sectionHeading('1 INTRODUÇÃO, PROBLEMA E PROPOSTA DE SOLUÇÃO'),
-    body(
-      `O presente trabalho aborda o tema "${project.title}" no contexto do curso de ${course}, buscando oferecer uma base estruturada e fundamentada para análise acadêmica e aplicação prática. De acordo com Gil (2019), a pesquisa científica exige delimitação clara do problema e coerência entre os objetivos propostos e os procedimentos metodológicos adotados.`
-    ),
-    body(
-      `Problema de pesquisa: como estruturar e aplicar soluções eficazes voltadas a "${project.title}" de modo a superar gargalos operacionais, falta de padronização e baixa previsibilidade de resultados no cenário investigado? ${focusNote ? `Considera-se ainda o direcionamento informado: ${focusNote}.` : ''}`
-    ),
-    body(
-      `Proposta de solução: propõe-se a adoção de um modelo estruturado em etapas — contemplando diagnóstico do cenário atual, definição de requisitos e indicadores, implementação de solução prática/metodológica e validação contínua — permitindo ao autor adaptar e aprofundar cada seção com o acompanhamento do(a) orientador(a) ${advisorName}.`
-    ),
-    ...buildExpansionParagraphs('a contextualização e a solução proposta', targetPages),
-
-    // 2 OBJETIVOS
-    sectionHeading('2 OBJETIVOS'),
-    body(
-      `Objetivo geral: analisar "${project.title}" e apresentar uma proposta estruturada e fundamentada na literatura acadêmica para responder ao problema de pesquisa definido.`
-    ),
-    body(
-      'Objetivos específicos: (a) levantar conceitos e estudos científicos relevantes sobre o tema; (b) identificar os principais desafios e pontos críticos do problema investigado; (c) delinear uma solução viável e replicável; e (d) consolidar conclusões e recomendações para trabalhos futuros.'
-    ),
-
-    // 3 FUNDAMENTAÇÃO TEÓRICA E METODOLOGIA
-    sectionHeading('3 FUNDAMENTAÇÃO TEÓRICA E METODOLOGIA'),
-    body(
-      'Segundo Lakatos e Marconi (2021), a revisão bibliográfica e a definição metodológica conferem sustentação científica ao estudo, permitindo confrontar diferentes perspectivas de autores reconhecidos na área.'
-    ),
-    quoteBlock(
-      'A pesquisa científica depende de um procedimento metódico para tratar o problema investigado, devendo o pesquisador explicitar os critérios, fontes e limites do estudo de forma objetiva e verificável (GIL, 2019, p. 26).'
-    ),
-    body(
-      'Quanto aos procedimentos metodológicos, este trabalho adota abordagem qualitativa e descritiva, apoiada em pesquisa bibliográfica e documental em artigos científicos, livros técnicos e normas vigentes. Recomenda-se que o aluno complemente esta seção com dados empíricos, estudos de caso ou resultados obtidos durante o desenvolvimento do projeto.'
-    ),
-    ...buildExpansionParagraphs('a fundamentação teórica e os procedimentos metodológicos', targetPages),
-
-    // 4 CONCLUSÃO
-    sectionHeading('4 CONCLUSÃO'),
-    body(
-      `Conclui-se que a investigação sobre "${project.title}" evidencia a importância de estruturar soluções claras, documentadas e alinhadas aos objetivos propostos. A abordagem apresentada fornece um alicerce consistente para o desenvolvimento do trabalho, restando ao autor refinar os dados específicos e validar os resultados finais junto ao(à) orientador(a) ${advisorName}.`
-    ),
-    body(
-      'Como recomendações para continuidade, sugere-se ampliar a coleta de evidências práticas, revisar periodicamente as atualizações normativas e técnicas da área e confrontar os resultados obtidos com novos estudos publicados.'
-    ),
-
-    // REFERÊNCIAS (ABNT NBR 6023)
-    sectionHeading('REFERÊNCIAS'),
-    referenceItem(
-      'ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. NBR 14724: informação e documentação — trabalhos acadêmicos — apresentação. Rio de Janeiro: ABNT, 2011.'
-    ),
-    referenceItem(
-      'ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. NBR 6023: informação e documentação — referências — elaboração. Rio de Janeiro: ABNT, 2018.'
-    ),
-    referenceItem(
-      'GIL, Antonio Carlos. Métodos e técnicas de pesquisa social. 7. ed. São Paulo: Atlas, 2019.'
-    ),
-    referenceItem(
-      'LAKATOS, Eva Maria; MARCONI, Marina de Andrade. Fundamentos de metodologia científica. 9. ed. São Paulo: Atlas, 2021.'
-    ),
-    referenceItem(
-      'SEVERINO, Antônio Joaquim. Metodologia do trabalho científico. 24. ed. São Paulo: Cortez, 2016.'
-    ),
-
     new Paragraph({
-      spacing: { before: 240 },
-      children: [
-        new TextRun({
-          text: 'Observação: este documento é um modelo inicial estruturado para revisão e edição do aluno e do(a) orientador(a). Verifique as normas ABNT vigentes e as exigências específicas da instituição antes da entrega final.',
-          italics: true,
-          size: 20,
-          font: 'Times New Roman'
-        })
-      ]
-    })
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 400 },
+      children: [new TextRun({ text: institutionCourse.toUpperCase(), font: 'Times New Roman', size: 24, bold: true })]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 800, after: 400 },
+      children: [new TextRun({ text: String(project.studentName).toUpperCase(), font: 'Times New Roman', size: 24, bold: true })]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 1200, after: 1600 },
+      children: [new TextRun({ text: String(project.title).toUpperCase(), font: 'Times New Roman', size: 28, bold: true })]
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 1400 },
+      children: [new TextRun({ text: 'CARAGUATATUBA — 2026', font: 'Times New Roman', size: 24, bold: true })]
+    }),
+    new Paragraph({ children: [new PageBreak()] }),
+
+    sectionHeading('1 Introdução, Problema e Proposta de Solução'),
+    ...content.introducao.map(p => abntParagraph(p)),
+
+    sectionHeading('2 Objetivos'),
+    ...content.objetivos.map(p => abntParagraph(p)),
+
+    sectionHeading('3 Fundamentação Teórica e Metodologia'),
+    ...content.fundamentacaoMetodologia.map(p => abntParagraph(p)),
+
+    sectionHeading('4 Conclusão'),
+    ...content.conclusao.map(p => abntParagraph(p)),
+
+    sectionHeading('Referências'),
+    ...content.referencias.map(ref =>
+      abntParagraph(ref, { align: AlignmentType.LEFT, firstLineIndent: 0, spaceAfter: 180 })
+    )
   ];
 
   const doc = new Document({
-    creator: 'Assistente TCC ABNT',
-    title: project.title,
-    description: 'Modelo de TCC estruturado conforme normas ABNT para revisão.',
-    styles: {
-      default: {
-        document: {
-          run: { font: 'Times New Roman', size: 24 },
-          paragraph: { spacing: { line: 360, after: 120 } }
-        }
-      }
-    },
     sections: [
       {
         properties: {
           page: {
-            // Margens ABNT: superior e esquerda 3 cm (1701 twips); inferior e direita 2 cm (1134 twips)
-            margin: { top: 1701, right: 1134, bottom: 1134, left: 1701 }
+            margin: {
+              top: 1701,
+              left: 1701,
+              bottom: 1134,
+              right: 1134
+            }
           }
         },
         children
@@ -414,135 +383,59 @@ async function generateTccDocx(project) {
 }
 
 async function generateTccPptx(project) {
-  const parsed = parseCourseAndInstitution(
-    project.courseAndInstitution || project.course,
-    project.course,
-    project.institution
-  );
-  const focusNote = String(project.focusNote || '').trim();
-  const palette = getThemePalette(project.title, parsed.course);
-  const currentYear = new Date().getFullYear();
-
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_16x9';
-  pptx.author = String(project.studentName || 'Aluno');
-  pptx.title = String(project.title || 'Apresentação de TCC');
-  pptx.subject = `${parsed.course} - ${parsed.institution}`;
+  const palette = getThemePalette(project);
+  const institutionCourse = project.courseAndInstitution || project.course || 'Trabalho Acadêmico';
 
-  // Slide 1: Capa temática profissional
   const s1 = pptx.addSlide();
-  s1.background = { color: palette.secondary };
-  s1.addShape(pptx.ShapeType.rect, {
-    x: 0,
-    y: 0,
-    w: 0.35,
-    h: 7.5,
-    fill: { color: palette.accent }
+  s1.background = { color: palette.primary };
+  s1.addText(palette.label.toUpperCase(), {
+    x: 0.8, y: 0.7, w: 11.5, h: 0.4,
+    fontSize: 13, bold: true, color: 'E2E8F0'
   });
-  s1.addText(`${parsed.institution.toUpperCase()} • ${parsed.course.toUpperCase()}`, {
-    x: 0.8,
-    y: 0.9,
-    w: 11.8,
-    h: 0.4,
-    fontSize: 13,
-    bold: true,
-    color: palette.accent
+  s1.addText(String(project.title), {
+    x: 0.8, y: 1.5, w: 11.5, h: 2.2,
+    fontSize: 28, bold: true, color: 'FFFFFF'
   });
-  s1.addText(String(project.title || 'Projeto de TCC'), {
-    x: 0.8,
-    y: 1.7,
-    w: 11.5,
-    h: 2.2,
-    fontSize: 32,
-    bold: true,
-    color: 'FFFFFF'
+  s1.addText(`Autor(a): ${project.studentName}   |   Orientador(a): ${project.advisorName}`, {
+    x: 0.8, y: 4.3, w: 11.5, h: 0.5,
+    fontSize: 15, color: 'F8FAFC'
   });
-  s1.addText(
-    `Autor(a): ${project.studentName}\nOrientador(a): ${project.advisorName}\n${currentYear}`,
-    {
-      x: 0.8,
-      y: 4.8,
-      w: 11.5,
-      h: 1.5,
-      fontSize: 16,
-      color: 'E2E8F0'
-    }
-  );
+  s1.addText(`${institutionCourse} • ${project.pageCount || '10'} páginas`, {
+    x: 0.8, y: 4.9, w: 11.5, h: 0.4,
+    fontSize: 13, color: 'CBD5E1'
+  });
 
-  function addContentSlide(titleText, bullets) {
+  const slidesData = [
+    {
+      heading: 'Contexto e Problema de Pesquisa',
+      body: `Investigação focada em "${project.title}" no contexto de ${institutionCourse}, buscando compreender os fatores determinantes, lacunas práticas e evidências científicas que orientam decisões consistentes na área.`
+    },
+    {
+      heading: 'Objetivos e Abordagem Metodológica',
+      body: `Analisar "${project.title}" com base em fontes científicas e literatura especializada, estruturando a discussão de forma crítica e verificável sob orientação de ${project.advisorName}.`
+    },
+    {
+      heading: 'Síntese e Próximos Passos',
+      body: `Revisar as fontes recuperadas, aprofundar a análise específica do tema e validar a versão final com ${project.advisorName} e os critérios acadêmicos da instituição.`
+    }
+  ];
+
+  for (const item of slidesData) {
     const slide = pptx.addSlide();
-    slide.background = { color: palette.lightBg };
-    slide.addShape(pptx.ShapeType.rect, {
-      x: 0,
-      y: 0,
-      w: 13.333,
-      h: 1.05,
-      fill: { color: palette.primary }
+    slide.background = { color: 'F8FAFC' };
+    slide.addText(item.heading, {
+      x: 0.7, y: 0.6, w: 12, h: 0.6,
+      fontSize: 24, bold: true, color: palette.primary
     });
-    slide.addText(titleText, {
-      x: 0.7,
-      y: 0.22,
-      w: 11.9,
-      h: 0.6,
-      fontSize: 22,
-      bold: true,
-      color: 'FFFFFF'
-    });
-    slide.addText(
-      bullets.map(item => `• ${item}`).join('\n\n'),
-      {
-        x: 0.8,
-        y: 1.45,
-        w: 11.7,
-        h: 5.2,
-        fontSize: 17,
-        color: palette.textDark,
-        valign: 'top'
-      }
-    );
-    slide.addText(`${project.studentName} • ${parsed.course}`, {
-      x: 0.8,
-      y: 6.9,
-      w: 11.7,
-      h: 0.35,
-      fontSize: 11,
-      color: palette.textMuted
+    slide.addText(item.body, {
+      x: 0.7, y: 1.5, w: 12, h: 3.8,
+      fontSize: 17, color: '1E293B', valign: 'top'
     });
   }
 
-  // Slide 2: Contexto e Problema
-  addContentSlide('1. Contexto e Problema de Pesquisa', [
-    `Tema central: ${project.title}.`,
-    'Necessidade de organizar informações, reduzir falhas e estruturar decisões com critério técnico.',
-    'Problema: como alcançar maior eficiência, clareza e confiabilidade na área investigada?',
-    focusNote ? `Direcionamento informado: ${focusNote}.` : 'Base estruturada para ajustes conforme o orientador.'
-  ]);
-
-  // Slide 3: Solução Proposta e Objetivos
-  addContentSlide('2. Solução Proposta e Objetivos', [
-    'Objetivo geral: propor e estruturar uma solução consistente para o tema investigado.',
-    'Etapa 1: levantamento teórico em fontes científicas e normas técnicas (ABNT).',
-    'Etapa 2: definição da solução, fluxo operacional e critérios de avaliação.',
-    'Etapa 3: validação prática, revisão crítica e documentação dos resultados.'
-  ]);
-
-  // Slide 4: Metodologia e Referencial
-  addContentSlide('3. Metodologia e Referencial Teórico', [
-    'Pesquisa bibliográfica e documental em literatura científica e normas ABNT (NBR 14724 e NBR 6023).',
-    'Apoio em autores de referência em metodologia científica (Gil; Lakatos e Marconi; Severino).',
-    'Estrutura preparada para inserção de dados, métricas ou estudo de caso do aluno.',
-    'Revisão contínua alinhada às diretrizes do curso e da instituição.'
-  ]);
-
-  // Slide 5: Conclusão e Próximos Passos
-  addContentSlide('4. Conclusão e Próximos Passos', [
-    'O modelo oferece base sólida, organizada e editável para o desenvolvimento do TCC.',
-    'A definição clara do problema e da solução orienta a redação e a defesa.',
-    'Próximos passos: aprofundar análises, inserir evidências próprias e validar com o(a) orientador(a).'
-  ]);
-
-  const output = await pptx.write({ outputType: 'nodebuffer' });
-  return Buffer.isBuffer(output) ? output : Buffer.from(output);
+  return pptx.write({ outputType: 'nodebuffer' });
 }
 
 module.exports = {
