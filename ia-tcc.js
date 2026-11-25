@@ -443,6 +443,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     texto: partes.join('\n\n'),
     secoes,
     fontes,
+    fontesCitadas: fontes.filter(fonte => fontesCitadas.has(fonte.idFonte)),
     referencias,
     relatorioPesquisa: relatorio
   };
