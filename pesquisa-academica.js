@@ -437,15 +437,15 @@ async function verificarNoCrossref(fonte) {
 function limparResumoCrossref(valor) {
   if (!valor) return null;
   const texto = String(valor)
-    .replace(/<\\/?(?:jats:[\\w-]+|\\w+)[^>]*>/gi, ' ')
+    .replace(/<\/?(?:jats:[\w-]+|\w+)[^>]*>/gi, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&#(\\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/\\s+/g, ' ')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/\s+/g, ' ')
     .trim();
   return texto.length >= 80 ? texto : null;
 }
@@ -475,7 +475,7 @@ function mapearRegistroCrossref(registro, termosTema, termosObjetivo = []) {
   const relevancia = relevanciaObjetivo === null
     ? relevanciaTema
     : Math.round(relevanciaTema * 0.7 + relevanciaObjetivo * 0.3);
-  const paginas = String(registro.page || '').match(/^(\\d+)\\s*[-–]\\s*(\\d+)$/);
+  const paginas = String(registro.page || '').match(/^(\d+)\s*[-–]\s*(\d+)$/);
   return {
     fonteDados: 'Crossref',
     openAlexId: null,
@@ -518,7 +518,7 @@ async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjeti
     const resposta = await fetch('https://api.crossref.org/works?' + params.toString(), {
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic research fallback; mailto:contato@example.org)'
+        'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic research fallback)'
       },
       signal: AbortSignal.timeout(25000)
     });
