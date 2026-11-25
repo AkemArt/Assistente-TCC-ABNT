@@ -706,6 +706,14 @@ test('citações consagradas só são aceitas quando a URL pertence ao grounding
     confirmadaNaBusca: true
   };
   assert.equal(validarCitacoesConsagradas([base], ['https://example.org/fonte']).length, 1);
+  assert.equal(validarCitacoesConsagradas([base], [{
+    titulo: 'Fonte primária',
+    url: 'https://example.org/fonte'
+  }]).length, 1);
+  assert.equal(validarCitacoesConsagradas([base], [{
+    titulo: 'Título que não corresponde ao resultado',
+    url: 'https://example.org/fonte'
+  }]).length, 0);
   assert.equal(validarCitacoesConsagradas([base], ['https://outro.example.org/fonte']).length, 0);
   assert.equal(validarCitacoesConsagradas([{ ...base, urlFonte: 'http://example.org/fonte' }]).length, 0);
   assert.equal(validarCitacoesConsagradas([{ ...base, urlFonte: 'javascript:alert(1)' }]).length, 0);
