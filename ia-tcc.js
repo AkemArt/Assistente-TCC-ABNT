@@ -338,7 +338,23 @@ async function verificarSustentacaoSemantica(ai, evidencias) {
     throw new Error('A auditoria de evidências retornou uma avaliação incompleta. Nenhum documento será liberado.');
   }
 
-  const porIndice = new Map(resultado.avaliacoes.map(item => [item.indice, item]));
+  const indicesRecebidos = new Set();
+  const porIndice = new Map();
+  for (const item of resultado.avaliacoes) {
+    if (!item || !Number.isInteger(item.indice) ||
+        item.indice < 0 || item.indice >= evidencias.length ||
+        indicesRecebidos.has(item.indice)) {
+      throw new Error('A auditoria de evidências retornou índices inválidos ou repetidos. Nenhum documento será liberado.');
+    }
+    if (!['sustentada', 'parcial', 'nao_sustentada'].includes(item.status) ||
+        typeof item.justificativa !== 'string' ||
+        item.justificativa.trim().length < 12) {
+      throw new Error('A auditoria de evidências retornou uma classificação ou justificativa inválida. Nenhum documento será liberado.');
+    }
+    indicesRecebidos.add(item.indice);
+    porIndice.set(item.indice, item);
+  }
+
   for (let i = 0; i < evidencias.length; i += 1) {
     const avaliacao = porIndice.get(i);
     if (!avaliacao || avaliacao.status !== 'sustentada') {
@@ -347,7 +363,7 @@ async function verificarSustentacaoSemantica(ai, evidencias) {
         ' (resultado da auditoria: ' + status + '). Revise a afirmação ou encontre um estudo que a sustente. Nenhum texto será apresentado como fundamentado sem essa confirmação.');
     }
   }
-  return resultado.avaliacoes;
+  return evidencias.map((_, indice) => porIndice.get(indice));
 }
 
 function validarSecoes(dados) {
