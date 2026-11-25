@@ -17,7 +17,8 @@ const {
   validarVinculoDeEvidencias,
   validarEvidenciasTextuais,
   validarSecoes,
-  contarPalavrasSecoes
+  contarPalavrasSecoes,
+  substituirMarcadores
 } = require('../ia-tcc');
 
 test('reconstrói resumo a partir do índice invertido do OpenAlex', () => {
@@ -405,4 +406,24 @@ test('aceita artigos, revisões e trabalhos de congresso e rejeita tipos não ar
   assert.equal(tipoPublicacaoAcademicaAceito('editorial'), false);
   assert.equal(tipoPublicacaoAcademicaAceito('dissertation'), false);
   assert.equal(tipoPublicacaoAcademicaAceito(null), false);
+});
+
+test('substitui marcadores pelo ID da fonte e usa somente as obras citadas nos sufixos', () => {
+  const fonteCitata = {
+    idFonte: 'F2',
+    openAlexId: 'W2',
+    titulo: 'Título B',
+    autores: ['Ada Lovelace'],
+    ano: 2024
+  };
+  assert.equal(
+    substituirMarcadores('A afirmação é sustentada [F2].', [fonteCitata]),
+    'A afirmação é sustentada (Lovelace, 2024).'
+  );
+  const fontesCitadas = aplicarSufixosAno([
+    { idFonte: 'F1', openAlexId: 'W1', titulo: 'Título A', autores: ['Ada Lovelace'], ano: 2024 },
+    fonteCitata
+  ]);
+  assert.equal(substituirMarcadores('[F2]', fontesCitadas), '(Lovelace, 2024b)');
+  assert.equal(substituirMarcadores('[F2]', [fontesCitata]), '(Lovelace, 2024)');
 });
