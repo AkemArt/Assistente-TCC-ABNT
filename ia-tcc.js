@@ -223,7 +223,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
 }
 
 async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount = 10 }) {
-  const fontes = await pesquisarTrabalhos(tema, limite);
+  const fontes = await pesquisarTrabalhos(tema, limite, objetivo);
   return gerarTextoTCC({ tema, objetivo, fontes, pageCount });
 }
 
