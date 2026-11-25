@@ -447,3 +447,19 @@ test('limita trechos literais de artigos a 25 palavras e mantém o link para lei
     /excede o limite de 25 palavras/
   );
 });
+
+test('exige fonte em cada parágrafo de introdução, teoria, discussão e conclusão', () => {
+  const dados = {
+    introducao: ['Afirmação acadêmica sem fonte vinculada.'],
+    problemaPesquisa: ['Pergunta proposta a partir do objetivo informado.'],
+    objetivos: ['Objetivo definido pelo estudante.'],
+    fundamentacaoTeorica: ['Fundamentação com marcador [F1].'],
+    metodologia: ['Proposta metodológica do projeto.'],
+    discussao: ['Discussão com marcador [F1].'],
+    conclusao: ['Conclusão com marcador [F1].']
+  };
+  assert.throws(
+    () => validarVinculoDeEvidencias(dados, [{ idFonte: 'F1' }]),
+    /não possui marcador de fonte/
+  );
+});
