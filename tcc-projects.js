@@ -388,7 +388,14 @@ function sectionHeading(text) {
       new TextRun({
         text: String(text).toUpperCase(),
         font: 'Times New Roman',
-   async function generateTccDocx(project) {
+        size: 24,
+        bold: true
+      })
+    ]
+  });
+}
+
+async function generateTccDocx(project) {
   const institutionCourse = project.courseAndInstitution || project.course || 'CURSO E INSTITUIÇÃO';
   const pesquisa = await gerarRascunhoComPesquisa({
     tema: project.title,
@@ -416,7 +423,7 @@ function sectionHeading(text) {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 1400 },
-      children: [new TextRun({ text: 'CARAGUATATUBA — 2026', font: 'Times New Roman', size: 24, bold: true })]
+      children: [new TextRun({ text: 'CARAGUATATUBA — ' + new Date().getFullYear(), font: 'Times New Roman', size: 24, bold: true })]
     }),
     new Paragraph({ children: [new PageBreak()] })
   ];
@@ -435,7 +442,9 @@ function sectionHeading(text) {
 
   for (const [titulo, paragrafos] of secoesDocumento) {
     children.push(sectionHeading(titulo));
-    for (const paragrafo of paragrafos || []) children.push(abntParagraph(paragrafo));
+    for (const paragrafo of paragrafos || []) {
+      children.push(abntParagraph(paragrafo));
+    }
   }
 
   children.push(sectionHeading('REFERÊNCIAS PRELIMINARES'));
@@ -448,7 +457,7 @@ function sectionHeading(text) {
   }
 
   children.push(sectionHeading('RELATÓRIO DA PESQUISA'));
-  for (const linha of String(pesquisa.relatorioPesquisa || '').split('\n').filter(Boolean)) {
+  for (const linha of String(pesquisa.relatorioPesquisa || '').split('\\n').filter(Boolean)) {
     children.push(abntParagraph(linha, {
       align: AlignmentType.LEFT,
       firstLineIndent: 0,
@@ -470,14 +479,6 @@ function sectionHeading(text) {
       },
       children
     }]
-  });
-
-  return Packer.toBuffer(doc);
-}
-
-en
-      }
-    ]
   });
 
   return Packer.toBuffer(doc);
