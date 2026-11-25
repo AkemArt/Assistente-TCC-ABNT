@@ -621,7 +621,7 @@ test('artigo em inglês é pontuado pelas palavras-chave geradas pela IA', () =>
   assert.ok(pontuarMelhorGrupo(termosPt, [ingles], titulo, '') >= 60);
 });
 
-test('sem chave OpenAlex vai direto ao Crossref e se recupera de HTTP 400', async () => {
+test('sem chave tenta OpenAlex e usa Crossref quando recebe HTTP 429 e depois 400', async () => {
   const fetchOriginal = globalThis.fetch;
   const chaveOriginal = process.env.OPENALEX_API_KEY;
   delete process.env.OPENALEX_API_KEY;
@@ -639,7 +639,9 @@ test('sem chave OpenAlex vai direto ao Crossref e se recupera de HTTP 400', asyn
   try {
     globalThis.fetch = async (url) => {
       urls.push(String(url));
-      if (String(url).includes('api.openalex.org')) throw new Error('OpenAlex não deveria ser chamada sem chave');
+      if (String(url).includes('api.openalex.org')) {
+        return { status: 429, ok: false, text: async () => 'rate limit', headers: { get: (name) => name === 'retry-after' ? '0' : null } };
+      }
       if (!String(url).includes('select=')) {
         return { status: 400, ok: false, text: async () => 'Simulated invalid query parameter', headers: { get: () => null } };
       }
@@ -648,7 +650,7 @@ test('sem chave OpenAlex vai direto ao Crossref e se recupera de HTTP 400', asyn
     const fontes = await pesquisarTrabalhos('educação financeira', 3, '', { consultas: ['financial literacy savings', 'educação financeira poupança'] });
     assert.equal(fontes.length, 1);
     assert.equal(fontes[0].fonteDados, 'Crossref');
-    assert.ok(urls.every(u => !u.includes('openalex')));
+    assert.ok(urls.some(u => u.includes('openalex')));
     assert.ok(urls.some(u => u.includes('select=')) && urls.some(u => !u.includes('select=')));
   } finally {
     globalThis.fetch = fetchOriginal;
