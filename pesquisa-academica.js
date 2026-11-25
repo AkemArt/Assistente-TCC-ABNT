@@ -397,7 +397,7 @@ function formatarReferenciaABNT(fonte) {
       }).join('; ')
     : '[AUTORIA NÃO IDENTIFICADA]';
 
-  const dados = [autoresFormatados, fonte.titulo, fonte.revista, fonte.ano ? String(fonte.ano) : null];
+  const dados = [autoresFormatados, fonte.titulo, fonte.revista, fonte.anoReferencia || (fonte.ano ? String(fonte.ano) : null)];
   if (fonte.volume) dados.push('v. ' + fonte.volume);
   if (fonte.numero) dados.push('n. ' + fonte.numero);
   if (fonte.paginaInicial) dados.push('p. ' + fonte.paginaInicial + (fonte.paginaFinal ? '-' + fonte.paginaFinal : ''));
