@@ -232,6 +232,8 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'Fontes com resumo disponível: ' + fontesComResumo.length,
     'Fontes sem resumo: ' + (fontes.length - fontesComResumo.length),
     'Fontes efetivamente citadas no rascunho: ' + fontesCitadas.size,
+    'Extensão solicitada: aproximadamente ' + pageCount + ' páginas de conteúdo principal.',
+    'Palavras nas seções principais: ' + palavrasGeradas + ' (meta aproximada: ' + palavrasEsperadas + ').',
     'Base consultada: OpenAlex (metadados e resumos disponíveis).',
     '',
     'ATENÇÃO: os resumos não equivalem à leitura integral dos artigos. Consulte os textos originais antes de validar cada argumento e referência.'
