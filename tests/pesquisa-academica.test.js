@@ -19,7 +19,8 @@ const {
   validarEvidenciasTextuais,
   validarSecoes,
   contarPalavrasSecoes,
-  substituirMarcadores
+  substituirMarcadores,
+  erroPermiteFallbackModelo
 } = require('../ia-tcc');
 
 test('reconstrói resumo a partir do índice invertido do OpenAlex', () => {
