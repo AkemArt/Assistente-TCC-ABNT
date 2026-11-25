@@ -290,20 +290,31 @@ async function consultarOpenAlex(consulta, quantidade) {
       });
 
       if (resposta.status === 429 || resposta.status >= 500) {
+        let detalheLimite = '';
+        let motivoLimite = '';
+        if (resposta.status === 429) {
+          try {
+            detalheLimite = String(await resposta.text()).replace(/\s+/g, ' ').slice(0, 300);
+            const corpo = JSON.parse(detalheLimite);
+            motivoLimite = String(corpo?.error?.code || corpo?.error?.reason || corpo?.reason || '');
+          } catch { /* corpo pode não ser JSON */ }
+          console.warn('⚠️ OpenAlex HTTP 429' +
+            (motivoLimite ? ' (' + motivoLimite + ')' : '') + ': ' +
+            (detalheLimite || 'detalhe não fornecido pela API'));
+        }
+        ultimoErro = new Error('OpenAlex retornou HTTP ' + resposta.status +
+          (motivoLimite ? ' (' + motivoLimite + ')' : '') +
+          (detalheLimite ? ': ' + detalheLimite : ''));
+
+        // Limite diário não se resolve com retry: sai imediatamente para o Crossref.
+        if (resposta.status === 429 && /daily_budget|budget_exceeded/i.test(motivoLimite + ' ' + detalheLimite)) {
+          break;
+        }
         const espera = calcularEsperaRetryAfter(
           resposta.headers.get('retry-after'),
           [1500, 3500, 7000][tentativa],
           8000
         );
-        let detalheLimite = '';
-        if (resposta.status === 429) {
-          try {
-            detalheLimite = String(await resposta.text()).replace(/\s+/g, ' ').slice(0, 300);
-          } catch { /* corpo opcional */ }
-          console.warn('⚠️ OpenAlex HTTP 429: ' + (detalheLimite || 'detalhe não fornecido pela API'));
-        }
-        ultimoErro = new Error('OpenAlex retornou HTTP ' + resposta.status +
-          (detalheLimite ? ': ' + detalheLimite : ''));
         if (tentativa < 2) {
           await aguardar(espera);
           continue;
@@ -312,7 +323,12 @@ async function consultarOpenAlex(consulta, quantidade) {
       }
 
       if (!resposta.ok) {
-        throw new Error('OpenAlex retornou HTTP ' + resposta.status + ' para a consulta: ' + consulta);
+        let detalhe = '';
+        try { detalhe = String(await resposta.text()).replace(/\s+/g, ' ').slice(0, 300); } catch { /* corpo opcional */ }
+        ultimoErro = new Error('OpenAlex retornou HTTP ' + resposta.status +
+          (detalhe ? ': ' + detalhe : '') + ' para a consulta: ' + consulta);
+        console.warn('⚠️ OpenAlex indisponível: ' + ultimoErro.message);
+        break;
       }
 
       const dados = await resposta.json();
