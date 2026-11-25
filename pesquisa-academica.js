@@ -216,13 +216,19 @@ async function consultarOpenAlex(consulta, quantidade) {
   return Array.isArray(dados.results) ? dados.results : [];
 }
 
-function mapearTrabalho(trabalho, termos) {
+function mapearTrabalho(trabalho, termosTema, termosObjetivo = []) {
   const autores = (trabalho.authorships || [])
     .map(item => item.author && item.author.display_name)
     .filter(Boolean);
   const resumo = extrairResumo(trabalho.abstract_inverted_index);
   const titulo = trabalho.title || 'Título não informado';
-  const relevancia = pontuarRelevancia(termos, titulo, resumo || '');
+  const relevanciaTema = pontuarRelevancia(termosTema, titulo, resumo || '');
+  const relevanciaObjetivo = termosObjetivo.length
+    ? pontuarRelevancia(termosObjetivo, titulo, resumo || '')
+    : null;
+  const relevancia = relevanciaObjetivo === null
+    ? relevanciaTema
+    : Math.round(relevanciaTema * 0.7 + relevanciaObjetivo * 0.3);
   const doi = trabalho.doi || null;
   const melhorLocalAberto = trabalho.best_oa_location || null;
   const localPrincipal = trabalho.primary_location || null;
@@ -259,6 +265,8 @@ function mapearTrabalho(trabalho, termos) {
     idioma: trabalho.language || null,
     acessoAberto: trabalho.open_access ? trabalho.open_access.is_oa : null,
     pontuacaoRelevancia: relevancia,
+    pontuacaoTema: relevanciaTema,
+    pontuacaoObjetivo: relevanciaObjetivo,
     relevancia: relevancia >= 55 ? 'Mais relevante' : relevancia >= 25 ? 'Precisa de análise' : 'Relevância incerta'
   };
 }
@@ -317,9 +325,9 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
   const quantidade = Math.min(Math.max(Number(limite) || 8, 1), 10);
   const termos = extrairTermos(tema);
   if (!termos.length) throw new Error('Não foi possível identificar palavras-chave no tema informado.');
+  const termosObjetivo = extrairTermos(objetivo).slice(0, 5);
 
   const consultas = montarConsultas(tema, objetivo);
-  const termosDeRelevancia = [...new Set([...termos, ...extrairTermos(objetivo).slice(0, 5)])];
   const resultados = await Promise.allSettled(
     consultas.map(consulta => consultarOpenAlex(consulta, quantidade))
   );
@@ -338,7 +346,7 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
 
   const unicos = new Map();
   for (const trabalho of trabalhosBrutos) {
-    const mapeado = mapearTrabalho(trabalho, termosDeRelevancia);
+    const mapeado = mapearTrabalho(trabalho, termos, termosObjetivo);
     const chave = mapeado.doi || mapeado.openAlexId || mapeado.titulo.toLowerCase();
     if (!unicos.has(chave) || mapeado.pontuacaoRelevancia > unicos.get(chave).pontuacaoRelevancia) {
       unicos.set(chave, mapeado);
