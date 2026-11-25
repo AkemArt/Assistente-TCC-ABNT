@@ -42,7 +42,8 @@ async function initTccProjects() {
 }
 
 async function saveProject(project) {
-  await initTccProjects().catch(() => {});
+  // Não ignora falhas de migração: o objetivo precisa ser persistido corretamente.
+  await initTccProjects();
 
   const institutionCourse =
     project.courseAndInstitution ||
