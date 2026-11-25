@@ -676,7 +676,7 @@ client.on(Events.InteractionCreate, async interaction => {
       const cursoInstituicao = interaction.fields.getTextInputValue('tcc_curso_instituicao').trim();
       const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
       const titulo = interaction.fields.getTextInputValue('tcc_titulo').trim();
-      const folhasInput = interaction.fields.getTextInputValue('tcc_folhas').trim();
+      const objetivo = interaction.fields.getTextInputValue('tcc_objetivo').trim();
 
       const totalLabel = `iniciar_tcc_${interaction.user.id}_${Date.now()}`;
       console.time(totalLabel);
@@ -694,8 +694,9 @@ client.on(Events.InteractionCreate, async interaction => {
           course: cursoInstituicao,
           courseAndInstitution: cursoInstituicao,
           title: titulo,
-          pageCount: folhasInput,
-          focusNote: folhasInput
+          objective: objetivo,
+          problem: objetivo,
+          pageCount: '10'
         };
 
         let saved = { id: 'novo' };
@@ -771,7 +772,8 @@ client.on(Events.InteractionCreate, async interaction => {
             { name: 'Aluno(a)', value: nomeAluno, inline: false },
             { name: 'Curso e Instituição', value: cursoInstituicao, inline: false },
             { name: 'Orientador(a)', value: orientador, inline: true },
-            { name: 'Folhas / Foco', value: folhasInput || '10 folhas', inline: true },
+            { name: 'Objetivo do projeto', value: objetivo, inline: false },
+            { name: 'Quantidade de páginas', value: '10 (padrão inicial)', inline: true },
             { name: 'Título / Tema', value: titulo, inline: false }
           )
           .setColor('#5865F2');
@@ -1207,21 +1209,21 @@ client.on(Events.InteractionCreate, async interaction => {
       .setMaxLength(250)
       .setRequired(true);
 
-    const folhas = new TextInputBuilder()
-      .setCustomId('tcc_folhas')
-      .setLabel('Qtd. de folhas desejada (ex.: 10, 20)')
-      .setStyle(TextInputStyle.Short)
-      .setMinLength(1)
-      .setMaxLength(80)
+    const objetivo = new TextInputBuilder()
+      .setCustomId('tcc_objetivo')
+      .setLabel('Objetivo principal do projeto')
+      .setStyle(TextInputStyle.Paragraph)
+      .setMinLength(10)
+      .setMaxLength(1000)
       .setRequired(true)
-      .setPlaceholder('Ex.: 10 ou 20');
+      .setPlaceholder('Explique o que o projeto pretende investigar, analisar ou desenvolver.');
 
     modal.addComponents(
       new ActionRowBuilder().addComponents(aluno),
       new ActionRowBuilder().addComponents(cursoInstituicao),
       new ActionRowBuilder().addComponents(orientador),
       new ActionRowBuilder().addComponents(titulo),
-      new ActionRowBuilder().addComponents(folhas)
+      new ActionRowBuilder().addComponents(objetivo)
     );
 
     return interaction.showModal(modal);
