@@ -151,8 +151,12 @@ async function processTccProject(interaction, project, totalLabel) {
     tccProjects.generateTccPptx(project, pesquisa)
   ]);
 
-  const rawDocx = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer);
-  const rawPptx = Buffer.isBuffer(pptxBuffer) ? pptxBuffer : Buffer.from(pptxBuffer);
+  const rawDocx = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
+  const rawPptx = Buffer.isBuffer(pptxBuffer) ? pptxBuffer : Buffer.from(pptxBuffer || []);
+
+  if (!rawDocx.length || !rawPptx.length) {
+    throw new Error('A geração terminou sem produzir os dois arquivos. O envio foi cancelado para evitar anexos vazios.');
+  }
 
   await Promise.allSettled([
     stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'tcc_started' }),
@@ -161,36 +165,42 @@ async function processTccProject(interaction, project, totalLabel) {
 
   await safeProgress(
     interaction,
-    '📤 Os documentos foram gerados. Estou enviando os arquivos agora.',
+    '📤 Os documentos foram gerados e validados. Estou entregando os arquivos na sua resposta privada.',
     totalLabel
   );
 
-  const files = [
+  const criarAnexos = () => [
     new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
     new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
   ];
+  const mensagemArquivos = `📄 Projeto nº ${saved.id} — Word ABNT e PowerPoint. Confira os links dos artigos e valide as fontes com seu orientador.`;
 
   let enviado = false;
-  if (interaction.channel && typeof interaction.channel.send === 'function') {
-    try {
-      await withTimeout(interaction.channel.send({
-        content: `📄 <@${interaction.user.id}> — Ficheiros do projeto nº ${saved.id} (${project.studentName}) — Word ABNT e PowerPoint:`,
-        files
-      }), 12000, `${totalLabel}_channel_send`);
-      enviado = true;
-    } catch (channelErr) {
-      console.warn(`⚠️ [${totalLabel}] Falha no channel.send, tentando followUp:`, describeError(channelErr));
-    }
+  try {
+    // Prioriza a resposta privada da interação: não depende de permissões
+    // de envio de mensagens/anexos no canal público.
+    await withTimeout(interaction.followUp({
+      content: mensagemArquivos,
+      files: criarAnexos(),
+      flags: MessageFlags.Ephemeral
+    }), 20000, `${totalLabel}_private_followUp`);
+    enviado = true;
+    console.log(`✅ [${totalLabel}] Word e PowerPoint entregues por resposta privada do Discord.`);
+  } catch (followUpErr) {
+    console.warn(`⚠️ [${totalLabel}] Não foi possível entregar por resposta privada; tentando canal:`, describeError(followUpErr));
+  }
+
+  if (!enviado && interaction.channel && typeof interaction.channel.send === 'function') {
+    await withTimeout(interaction.channel.send({
+      content: `📄 <@${interaction.user.id}> — ${mensagemArquivos}`,
+      files: criarAnexos()
+    }), 20000, `${totalLabel}_channel_send_fallback`);
+    enviado = true;
+    console.log(`✅ [${totalLabel}] Word e PowerPoint entregues no canal como alternativa.`);
   }
 
   if (!enviado) {
-    await withTimeout(interaction.followUp({
-      content: `📄 Ficheiros do projeto nº ${saved.id} (${project.studentName}) — Word ABNT e PowerPoint:`,
-      files: [
-        new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
-        new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
-      ]
-    }), 12000, `${totalLabel}_followUp_fallback`);
+    throw new Error('Os documentos foram gerados, mas o Discord não confirmou a entrega dos anexos.');
   }
 
   const resumo = new EmbedBuilder()
