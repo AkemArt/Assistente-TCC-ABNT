@@ -424,5 +424,6 @@ module.exports = {
   pesquisarTrabalhos,
   formatarReferenciaABNT,
   extrairResumo,
-  pontuarRelevancia
+  pontuarRelevancia,
+  mapearTrabalho
 };
