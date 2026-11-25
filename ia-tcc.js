@@ -81,6 +81,8 @@ function validarSecoes(dados) {
     'verificacoes'
   ];
   if (!dados || typeof dados !== 'object' || Array.isArray(dados)) return false;
+  const chaves = Object.keys(dados);
+  if (chaves.length !== obrigatorias.length || !obrigatorias.every(chave => chaves.includes(chave))) return false;
   return obrigatorias.every(chave =>
     Array.isArray(dados[chave]) &&
     dados[chave].length > 0 &&
