@@ -27,11 +27,16 @@ function listarModelosGemini() {
     : base;
 }
 
-function erroModeloIndisponivel(error) {
+function erroPermiteFallbackModelo(error) {
   const status = String(error?.status || error?.code || '').toUpperCase();
   const mensagem = String(error?.message || '');
-  return status === '404' || status === 'NOT_FOUND' ||
+  const modeloNaoDisponivel = status === '404' || status === 'NOT_FOUND' ||
     /\b404\b|NOT_FOUND|no longer available|is not found|not supported for generateContent/i.test(mensagem);
+  // RESOURCE_EXHAUSTED/429 pode ser limite específico do modelo. Após esgotar
+  // as tentativas com espera, experimenta o próximo modelo configurado.
+  const cotaDoModelo = status === '429' || status === 'RESOURCE_EXHAUSTED' ||
+    /HTTP\s*429|RESOURCE_EXHAUSTED|quota exceeded|rate limit/i.test(mensagem);
+  return modeloNaoDisponivel || cotaDoModelo;
 }
 
 async function gerarConteudoGeminiComModelo(ai, request, etapa) {
@@ -68,7 +73,7 @@ async function gerarConteudoGeminiComRetry(ai, request, etapa) {
       return resposta;
     } catch (error) {
       ultimoErro = error;
-      if (!erroModeloIndisponivel(error)) throw error;
+      if (!erroPermiteFallbackModelo(error)) throw error;
       console.warn('⚠️ Modelo Gemini "' + modelo + '" indisponível em ' + etapa + '; tentando o próximo da lista.');
     }
   }
@@ -870,5 +875,5 @@ module.exports = {
   validarCitacoesConsagradas,
   formatarCitacaoConsagrada,
   listarModelosGemini,
-  erroModeloIndisponivel
+  erroPermiteFallbackModelo
 };
