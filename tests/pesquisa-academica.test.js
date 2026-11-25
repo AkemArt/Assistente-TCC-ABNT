@@ -9,7 +9,8 @@ const {
 } = require('../pesquisa-academica');
 const {
   formatarCitacao,
-  ordenarFontesBibliografia
+  ordenarFontesBibliografia,
+  aplicarSufixosAno
 } = require('../ia-tcc');
 
 test('reconstrói resumo a partir do índice invertido do OpenAlex', () => {
@@ -189,4 +190,12 @@ test('considera tema e objetivo ao pontuar a relevância dos artigos', () => {
   assert.equal(apenasTema.pontuacaoTema, 100);
   assert.equal(apenasTema.pontuacaoObjetivo, 0);
   assert.ok(temaEObjetivo.pontuacaoRelevancia > apenasTema.pontuacaoRelevancia);
+});
+
+test('aplica sufixos de ano também nas referências bibliográficas', () => {
+  const fontes = aplicarSufixosAno([
+    { openAlexId: 'W2', autores: ['Ada Lovelace'], titulo: 'Título B', ano: 2024 },
+    { openAlexId: 'W1', autores: ['Ada Lovelace'], titulo: 'Título A', ano: 2024 }
+  ]);
+  assert.deepEqual(fontes.map(item => item.anoReferencia), ['2024a', '2024b']);
 });
