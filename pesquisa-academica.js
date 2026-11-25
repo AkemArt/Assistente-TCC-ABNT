@@ -234,14 +234,13 @@ const aguardar = ms => new Promise(resolve => setTimeout(resolve, ms));
 function calcularEsperaRetryAfter(valor, fallbackMs, limiteMs = 10000) {
   if (valor == null || String(valor).trim() === '') return fallbackMs;
   const segundos = Number(valor);
-  if (Number.isFinite(segundos) && segundos > 0) return Math.min(segundos * 1000, limiteMs);
+  if (Number.isFinite(segundos) && segundos >= 0) return Math.min(segundos * 1000, limiteMs);
   const data = Date.parse(String(valor));
   if (Number.isFinite(data)) return Math.min(Math.max(data - Date.now(), 0), limiteMs);
   return fallbackMs;
 }
-
-// A OpenAlex exige chave de API desde fevereiro de 2026. Sem chave, a pesquisa
-// usa o Crossref; com chave, o token vai no cabeçalho Authorization.
+// Consultas básicas OpenAlex podem funcionar sem chave, mas têm cota reduzida.
+// Para uso contínuo, configure uma chave gratuita; o token vai no cabeçalho Authorization.
 function chaveOpenAlex() {
   return String(process.env.OPENALEX_API_KEY || '').trim();
 }
@@ -268,12 +267,9 @@ async function consultarOpenAlex(consulta, quantidade) {
   }
 
   const chaveApi = chaveOpenAlex();
-  if (!chaveApi) {
-    if (!avisouSemChaveOpenAlex) {
-      avisouSemChaveOpenAlex = true;
-      console.warn('ℹ️ OPENALEX_API_KEY não configurada. OpenAlex exige chave de API; usando Crossref como fonte alternativa.');
-    }
-    throw new Error('OPENALEX_API_KEY não configurada; busca encaminhada para o Crossref.');
+  if (!chaveApi && !avisouSemChaveOpenAlex) {
+    avisouSemChaveOpenAlex = true;
+    console.warn('ℹ️ OPENALEX_API_KEY não configurada. Consultas básicas podem funcionar, mas a cota sem chave é limitada; configure uma chave gratuita para uso contínuo.');
   }
 
   const params = new URLSearchParams({
