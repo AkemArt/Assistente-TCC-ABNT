@@ -403,7 +403,8 @@ async function generateTccDocx(project) {
   const pesquisa = await gerarRascunhoComPesquisa({
     tema: project.title,
     objetivo: project.objective || project.problem || '',
-    limite: 8
+    limite: 8,
+    pageCount: Number(project.pageCount) || 10
   });
 
   const secoes = pesquisa.secoes;
@@ -524,7 +525,7 @@ async function generateTccPptx(project) {
     },
     {
       heading: 'Objetivos e Abordagem Metodológica',
-      body: `Objetivo do projeto: ${project.objective || project.problem || 'A definir pelo estudante.'} Abordagem: analisar "${project.title}" com base em fontes científicas e literatura especializada, estruturando a discussão de forma crítica e verificável sob orientação de ${project.advisorName}.`
+      body: `Objetivo do projeto: ${project.objective || project.problem || 'A definir pelo estudante.'} Extensão solicitada: ${project.pageCount || 10} páginas. Abordagem: analisar "${project.title}" com base em fontes científicas e literatura especializada, estruturando a discussão de forma crítica e verificável sob orientação de ${project.advisorName}.`
     },
     {
       heading: 'Síntese e Próximos Passos',
