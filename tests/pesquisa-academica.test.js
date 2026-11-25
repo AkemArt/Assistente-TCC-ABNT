@@ -291,3 +291,51 @@ test('valida a estrutura acadêmica e calcula a extensão das seções principai
     fundamentacaoTeorica: ['quatro cinco']
   }), 5);
 });
+
+test('bloqueia citação autor-data escrita diretamente mesmo quando há marcador de fonte', () => {
+  const dados = {
+    introducao: ['A pesquisa demonstrou um resultado (Autor Inventado, 2024) [F1].'],
+    problemaPesquisa: [], objetivos: [], fundamentacaoTeorica: [],
+    metodologia: [], discussao: [], conclusao: []
+  };
+  assert.throws(
+    () => validarVinculoDeEvidencias(dados, [{ idFonte: 'F1' }]),
+    /citação autor-data diretamente/
+  );
+});
+
+test('a auditoria semântica só aprova evidência classificada como sustentada', async () => {
+  const { verificarSustentacaoSemantica } = require('../ia-tcc');
+  const evidencias = [{
+    paragrafo: 'O estudo relata um resultado observado [F1].',
+    fonteId: 'F1',
+    titulo: 'Estudo demonstrativo',
+    trecho: 'the observed outcome improved',
+    textoFonte: 'the observed outcome improved in the sample',
+    statusTextoCompleto: 'Texto integral extraído'
+  }];
+  const aiSustenta = {
+    models: {
+      generateContent: async () => ({
+        text: JSON.stringify({
+          avaliacoes: [{ indice: 0, status: 'sustentada', justificativa: 'O texto descreve o resultado.' }]
+        })
+      })
+    }
+  };
+  const aiNaoSustenta = {
+    models: {
+      generateContent: async () => ({
+        text: JSON.stringify({
+          avaliacoes: [{ indice: 0, status: 'parcial', justificativa: 'O trecho não comprova toda a afirmação.' }]
+        })
+      })
+    }
+  };
+  const aprovada = await verificarSustentacaoSemantica(aiSustenta, evidencias);
+  assert.equal(aprovada[0].status, 'sustentada');
+  await assert.rejects(
+    verificarSustentacaoSemantica(aiNaoSustenta, evidencias),
+    /não comprovada/
+  );
+});
