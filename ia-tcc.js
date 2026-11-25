@@ -3,6 +3,38 @@ require('dotenv').config();
 const { GoogleGenAI } = require('@google/genai');
 const { pesquisarTrabalhos, formatarReferenciaABNT } = require('./pesquisa-academica');
 
+const aguardarGemini = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function erroGeminiTransitorio(error) {
+  const status = String(error?.status || error?.code || '').toUpperCase();
+  const mensagem = String(error?.message || '');
+  return ['429', '500', '502', '503', '504', 'RESOURCE_EXHAUSTED', 'UNAVAILABLE', 'INTERNAL'].includes(status) ||
+    /HTTP\s*(429|500|502|503|504)|RESOURCE_EXHAUSTED|UNAVAILABLE|temporarily unavailable|overloaded/i.test(mensagem);
+}
+
+async function gerarConteudoGeminiComRetry(ai, request, etapa) {
+  const esperas = [1500, 4000];
+  for (let tentativa = 0; tentativa <= esperas.length; tentativa += 1) {
+    try {
+      const resposta = await ai.models.generateContent(request);
+      if (!resposta || typeof resposta.text !== 'string' || !resposta.text.trim()) {
+        throw new Error('Gemini retornou uma resposta vazia na etapa ' + etapa + '.');
+      }
+      return resposta;
+    } catch (error) {
+      if (!erroGeminiTransitorio(error) || tentativa === esperas.length) {
+        const mensagem = String(error?.message || 'Erro sem detalhes');
+        throw new Error('Falha na API Gemini durante ' + etapa + ': ' + mensagem);
+      }
+      console.warn('⚠️ Gemini temporariamente indisponível em ' + etapa +
+        '. Nova tentativa ' + (tentativa + 1) + '/' + esperas.length +
+        ' após ' + esperas[tentativa] + ' ms.');
+      await aguardarGemini(esperas[tentativa]);
+    }
+  }
+  throw new Error('Não foi possível concluir a etapa ' + etapa + ' com o Gemini.');
+}
+
 function ordenarFontesBibliografia(fontes) {
   return [...(fontes || [])].sort((a, b) => {
     const primeiroSobrenome = fonte =>
@@ -286,14 +318,14 @@ async function verificarSustentacaoSemantica(ai, evidencias) {
     JSON.stringify(lote)
   ].join('\n');
 
-  const response = await ai.models.generateContent({
+  const response = await gerarConteudoGeminiComRetry(ai, {
     model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
       temperature: 0
     }
-  });
+  }, 'auditoria semântica das evidências');
 
   let resultado;
   try {
@@ -446,7 +478,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '12D. Dê preferência ao texto integral extraído de PDF aberto. Quando só houver resumo, limite a afirmação ao que o resumo efetivamente informa e nunca sugira que o artigo completo foi lido.'
   ].join('\n');
 
-  const response = await ai.models.generateContent({
+  const response = await gerarConteudoGeminiComRetry(ai, {
     model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     contents: prompt,
     config: {
@@ -454,7 +486,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
       temperature: 0.35,
       maxOutputTokens: 32768
     }
-  });
+  }, 'redação acadêmica do TCC');
 
   const parsed = JSON.parse(limparJson(response && response.text));
   if (!validarSecoes(parsed)) {
