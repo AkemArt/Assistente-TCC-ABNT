@@ -15,7 +15,7 @@ function erroGeminiTransitorio(error) {
 // Prioriza modelos estáveis atuais. O fallback evita depender de gemini-2.5-flash,
 // que teve disponibilidade limitada para novos projetos. Defina GEMINI_MODEL no Render
 // (aceita vários, separados por vírgula) para escolher o modelo que sua chave realmente enxerga.
-const MODELOS_GEMINI_PADRAO = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'];
+const MODELOS_GEMINI_PADRAO = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
 let modeloGeminiAtivo = null;
 
 function listarModelosGemini() {
