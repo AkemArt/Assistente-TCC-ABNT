@@ -222,6 +222,10 @@ function validarEvidenciasTextuais(dados, fontes) {
     }
     const trechoNormalizado = normalizarParaComparacao(evidencia.trecho);
     const textoNormalizado = normalizarParaComparacao(textoBase);
+    const quantidadePalavrasTrecho = (String(evidencia.trecho).trim().match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu) || []).length;
+    if (quantidadePalavrasTrecho > 25) {
+      throw new Error('O trecho literal da fonte excede o limite de 25 palavras. Solicite um excerto mais curto e mantenha o link do artigo para conferência.');
+    }
     if (trechoNormalizado.length < 35 || !textoNormalizado.includes(trechoNormalizado)) {
       throw new Error('O trecho atribuído à fonte ' + evidencia.fonteId + ' não foi localizado no texto recuperado. A afirmação foi bloqueada.');
     }
@@ -421,9 +425,9 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     ' "conclusao": ["parágrafos coerentes com o objetivo, as fontes e as limitações, sem inventar resultados"],',
     ' "limitacoes": ["limitações concretas das fontes recuperadas"],',
     ' "verificacoes": ["itens que o estudante deve conferir nos textos originais"],',
-    ' "evidencias": [{"paragrafo":"copie exatamente um parágrafo citado, incluindo seu marcador [F1]","fonteId":"F1","trecho":"copie literalmente um trecho contínuo do texto integral disponibilizado ou, se indisponível, do resumo da fonte, sem alterar palavras"}]',
+    ' "evidencias": [{"paragrafo":"copie exatamente um parágrafo citado, incluindo seu marcador [F1]","fonteId":"F1","trecho":"copie literalmente um trecho contínuo de até 25 palavras do texto integral disponibilizado ou, se indisponível, do resumo da fonte, sem alterar palavras"}]',
     '}',
-    '12A. Para CADA parágrafo que contenha [F#], inclua um objeto em evidencias para CADA fonte citada nele. O campo paragrafo deve ser a cópia integral e exata do parágrafo; fonteId deve ser o identificador citado; trecho deve ser uma passagem contínua, copiada literalmente do texto integral disponibilizado ou, se ele não existir, do resumo.',
+    '12A. Para CADA parágrafo que contenha [F#], inclua um objeto em evidencias para CADA fonte citada nele. O campo paragrafo deve ser a cópia integral e exata do parágrafo; fonteId deve ser o identificador citado; trecho deve ser uma passagem contínua de até 25 palavras, copiada literalmente do texto integral disponibilizado ou, se ele não existir, do resumo.',
     '12B. O trecho literal precisa apoiar diretamente a afirmação do parágrafo. Não escolha uma frase apenas por conter palavras parecidas. Se não houver trecho que sustente a afirmação, reescreva-a como limitação/pergunta em aberto, sem citação afirmativa.',
     '12C. Não use uma fonte para sustentar afirmação sobre população, método, efeito, resultado ou contexto diferente daquele descrito no texto recuperado.',
     '12D. Dê preferência ao texto integral extraído de PDF aberto. Quando só houver resumo, limite a afirmação ao que o resumo efetivamente informa e nunca sugira que o artigo completo foi lido.'
