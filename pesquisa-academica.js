@@ -321,7 +321,8 @@ function mapearTrabalho(trabalho, termosTema, termosObjetivo = []) {
     (melhorLocalAberto && melhorLocalAberto.source && melhorLocalAberto.source.display_name) || null;
 
   return {
-    fonteDados: 'OpenAlex',\n    openAlexId: trabalho.id || null,
+    fonteDados: 'OpenAlex',
+    openAlexId: trabalho.id || null,
     versaoAcessoAberto: melhorLocalAberto && melhorLocalAberto.version || null,
     urlPaginaArtigo: urlHttpsPublica(melhorLocalAberto && melhorLocalAberto.landing_page_url)
       ? melhorLocalAberto.landing_page_url
