@@ -426,5 +426,6 @@ module.exports = {
   formatarReferenciaABNT,
   extrairResumo,
   pontuarRelevancia,
-  mapearTrabalho
+  mapearTrabalho,
+  verificarNoCrossref
 };
