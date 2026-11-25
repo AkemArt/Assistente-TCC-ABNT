@@ -175,54 +175,84 @@ async function processTccProject(interaction, project, totalLabel) {
   ];
   const mensagemArquivos = `📄 Projeto nº ${saved.id} — Word ABNT e PowerPoint. Confira os links dos artigos e valide as fontes com seu orientador.`;
 
-  let enviado = false;
+  // DOCX e PPTX são contêineres ZIP. Verifica a assinatura antes de anexar,
+  // para não enviar buffers vazios, HTML de erro ou arquivos corrompidos.
+  const assinaturaZip = Buffer.from([0x50, 0x4b]);
+  if (
+    rawDocx.length < 1000 ||
+    rawPptx.length < 1000 ||
+    !rawDocx.subarray(0, 2).equals(assinaturaZip) ||
+    !rawPptx.subarray(0, 2).equals(assinaturaZip)
+  ) {
+    throw new Error('Os documentos foram gerados, mas a validação de integridade do Word ou PowerPoint falhou. O envio foi cancelado.');
+  }
+
+  console.log(
+    `📦 [${totalLabel}] Arquivos validados — DOCX: ${rawDocx.length} bytes; PPTX: ${rawPptx.length} bytes.`
+  );
+
+  await Promise.allSettled([
+    stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'tcc_started' }),
+    stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'document_generated' })
+  ]);
+
+  const criarAnexos = () => [
+    new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
+    new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
+  ];
+  const mensagemArquivos = `✅ Projeto nº ${saved.id}: Word ABNT e PowerPoint gerados e anexados. Confira os links dos artigos e valide as fontes com seu orientador.`;
+
+  // A resposta original já foi deferida como ephemeral. Editá-la é mais
+  // confiável do que criar um segundo webhook com followUp e evita duplicatas.
   try {
-    // Prioriza a resposta privada da interação: não depende de permissões
-    // de envio de mensagens/anexos no canal público.
-    await withTimeout(interaction.followUp({
+    const resposta = await interaction.editReply({
       content: mensagemArquivos,
       files: criarAnexos(),
-      flags: MessageFlags.Ephemeral
-    }), 20000, `${totalLabel}_private_followUp`);
-    enviado = true;
-    console.log(`✅ [${totalLabel}] Word e PowerPoint entregues por resposta privada do Discord.`);
-  } catch (followUpErr) {
-    console.warn(`⚠️ [${totalLabel}] Não foi possível entregar por resposta privada; tentando canal:`, describeError(followUpErr));
+      embeds: []
+    });
+
+    const quantidadeAnexos = resposta?.attachments?.size;
+    if (quantidadeAnexos !== 2) {
+      throw new Error(`Discord não confirmou os dois anexos (retornou ${quantidadeAnexos ?? 0}).`);
+    }
+
+    console.log(`✅ [${totalLabel}] Discord confirmou os dois anexos na resposta privada original.`);
+    return;
+  } catch (privateError) {
+    console.error(
+      `❌ [${totalLabel}] Falha ao anexar os arquivos à resposta privada original:`,
+      describeError(privateError)
+    );
   }
 
-  if (!enviado && interaction.channel && typeof interaction.channel.send === 'function') {
-    await withTimeout(interaction.channel.send({
-      content: `📄 <@${interaction.user.id}> — ${mensagemArquivos}`,
+  // Nunca publicar TCCs com dados pessoais em canal público como fallback.
+  // Tenta DM privada; se as DMs estiverem bloqueadas, informa a falha.
+  try {
+    const dm = await interaction.user.send({
+      content: mensagemArquivos,
       files: criarAnexos()
-    }), 20000, `${totalLabel}_channel_send_fallback`);
-    enviado = true;
-    console.log(`✅ [${totalLabel}] Word e PowerPoint entregues no canal como alternativa.`);
+    });
+    if (!dm?.attachments || dm.attachments.size !== 2) {
+      throw new Error('A mensagem privada não confirmou os dois anexos.');
+    }
+    console.log(`✅ [${totalLabel}] Discord confirmou a entrega dos dois arquivos por mensagem direta.`);
+    await interaction.editReply({
+      content: '✅ Os documentos foram enviados por mensagem direta. Confira sua caixa de entrada privada no Discord.',
+      files: [],
+      embeds: []
+    }).catch(() => {});
+  } catch (dmError) {
+    console.error(
+      `❌ [${totalLabel}] Também não foi possível entregar os arquivos por mensagem direta:`,
+      describeError(dmError)
+    );
+    await interaction.editReply({
+      content: '⚠️ Os documentos foram gerados e validados, mas o Discord não conseguiu anexá-los à resposta nem enviar uma mensagem direta. Verifique se suas mensagens diretas estão habilitadas e tente novamente. O projeto permanece registrado.',
+      files: [],
+      embeds: []
+    }).catch(() => {});
+    throw new Error('Arquivos gerados, mas a entrega privada pelo Discord falhou.');
   }
-
-  if (!enviado) {
-    throw new Error('Os documentos foram gerados, mas o Discord não confirmou a entrega dos anexos.');
-  }
-
-  const resumo = new EmbedBuilder()
-    .setTitle('📚 Projeto de TCC processado, Word ABNT e PowerPoint criados')
-    .setDescription(`Projeto nº ${saved.id} processado com estrutura acadêmica e apresentação prontos para revisão.`)
-    .addFields(
-      { name: 'Aluno(a)', value: project.studentName, inline: false },
-      { name: 'Curso e Instituição', value: project.courseAndInstitution, inline: false },
-      { name: 'Orientador(a)', value: project.advisorName, inline: true },
-      { name: 'Objetivo do projeto', value: project.objective, inline: false },
-      { name: 'Quantidade de páginas solicitada', value: String(project.pageCount), inline: true },
-      { name: 'Título / Tema', value: project.title, inline: false }
-    )
-    .setColor('#5865F2');
-
-  // A interação do Discord expira após a janela de validade do webhook.
-  // O envio ao canal já confirmou a entrega; a atualização final é best-effort.
-  await safeProgress(
-    interaction,
-    '✅ Ficheiros Word (.docx) + PowerPoint (.pptx) enviados! Confira o conteúdo e valide as referências nos textos originais.',
-    totalLabel
-  ).catch(() => false);
 }
 
 function buildKeepConnectedMenu(currentValue = true) {
