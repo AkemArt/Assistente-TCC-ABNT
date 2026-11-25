@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const {
   extrairResumo,
   pontuarRelevancia,
-  formatarReferenciaABNT
+  formatarReferenciaABNT,
+  mapearTrabalho
 } = require('../pesquisa-academica');
 const {
   formatarCitacao,
@@ -156,4 +157,36 @@ test('gera DOCX e PPTX com referência e links sem acessar banco de dados', asyn
   assert.ok(docx.length > 1000);
   assert.ok(Buffer.isBuffer(pptx));
   assert.ok(pptx.length > 1000);
+});
+
+test('considera tema e objetivo ao pontuar a relevância dos artigos', () => {
+  const base = {
+    authorships: [{ author: { display_name: 'Ada Lovelace' } }],
+    abstract_inverted_index: {
+      machine: [0],
+      learning: [1]
+    },
+    doi: 'https://doi.org/10.1234/example',
+    best_oa_location: {
+      landing_page_url: 'https://example.org/article',
+      pdf_url: 'https://example.org/article.pdf'
+    },
+    primary_location: { source: { display_name: 'Journal of Examples' } },
+    publication_year: 2024,
+    biblio: {}
+  };
+  const apenasTema = mapearTrabalho({
+    ...base,
+    id: 'https://openalex.org/W1',
+    title: 'Machine learning'
+  }, ['machine', 'learning'], ['health']);
+  const temaEObjetivo = mapearTrabalho({
+    ...base,
+    id: 'https://openalex.org/W2',
+    title: 'Machine learning for health'
+  }, ['machine', 'learning'], ['health']);
+
+  assert.equal(apenasTema.pontuacaoTema, 100);
+  assert.equal(apenasTema.pontuacaoObjetivo, 0);
+  assert.ok(temaEObjetivo.pontuacaoRelevancia > apenasTema.pontuacaoRelevancia);
 });
