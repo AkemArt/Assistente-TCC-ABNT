@@ -579,12 +579,27 @@ test('consulta do Crossref remove pontuação e operadores e limita o tamanho', 
   assert.equal(limparConsultaCrossref('finanças: "educação" AND (risco)!'), 'finanças educação AND risco');
   assert.ok(limparConsultaCrossref('palavra '.repeat(100)).length <= 200);
   const params = montarParametrosCrossref('educação financeira', 8);
-  assert.equal(params.get('rows'), '32');
-  assert.match(params.get('filter'), /journal-article/);
-  assert.ok(params.get('select'));
+  assert.equal(params.get('rows'), '24');
+  // A consulta padrão deve seguir a recomendação do Crossref: bibliographic query simples,
+  // sem filtros ou select desnecessários. Esses parâmetros só entram em variantes explícitas.
+  assert.equal(params.get('filter'), null);
+  assert.equal(params.get('select'), null);
   const simples = montarParametrosCrossref('x y', 5, { comSelect: false, comFiltro: false });
   assert.equal(simples.get('select'), null);
   assert.equal(simples.get('filter'), null);
+});
+
+
+test('inclui mailto válido no Crossref quando CONTACT_EMAIL está configurado', () => {
+  const original = process.env.CONTACT_EMAIL;
+  process.env.CONTACT_EMAIL = 'pesquisa@example.org';
+  try {
+    const params = montarParametrosCrossref('educação financeira', 5);
+    assert.equal(params.get('mailto'), 'pesquisa@example.org');
+  } finally {
+    if (original === undefined) delete process.env.CONTACT_EMAIL;
+    else process.env.CONTACT_EMAIL = original;
+  }
 });
 
 test('artigo em inglês é pontuado pelas palavras-chave geradas pela IA', () => {
