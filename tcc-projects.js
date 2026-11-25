@@ -397,7 +397,7 @@ async function generateTccPptx(project, pesquisa = null) {
       x: 0.8, y: 1.5, w: 11.7, h: 1.1,
       fontSize: 20, bold: true, color: '1E293B', valign: 'top', fit: 'shrink'
     });
-    slide.addText(String((fonte.autores || []).join('; ') + ' (' + (fonte.ano || 's.d.') + ')'), {
+    slide.addText(String((fonte.autores || []).join('; ') + ' (' + (fonte.anoReferencia || fonte.ano || 's.d.') + ')'), {
       x: 0.8, y: 2.8, w: 11.7, h: 0.6,
       fontSize: 14, color: '334155', valign: 'top'
     });
