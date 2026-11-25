@@ -31,6 +31,43 @@ function limparJson(texto) {
     .trim();
 }
 
+function validarVinculoDeEvidencias(dados, fontes) {
+  const idsValidos = new Set(fontes.map(f => f.idFonte));
+  const marcadoresEncontrados = new Set();
+  const secoesTextuais = [
+    'introducao', 'problemaPesquisa', 'objetivos',
+    'fundamentacaoTeorica', 'metodologia', 'discussao', 'conclusao'
+  ];
+
+  for (const secao of secoesTextuais) {
+    const paragrafos = Array.isArray(dados[secao]) ? dados[secao] : [];
+    for (const paragrafo of paragrafos) {
+      const texto = String(paragrafo || '');
+      const marcadores = texto.match(/\\[F\\d+\\]/g) || [];
+      const contemCitacaoAutorData = /\\([^)]{1,100}\\b(?:19|20)\\d{2}[a-z]?\\s*\\)/i.test(texto);
+
+      if (contemCitacaoAutorData && marcadores.length === 0) {
+        throw new Error('Foi encontrada uma citação autor-data sem vínculo com uma fonte recuperada. O texto foi bloqueado para evitar referência inventada.');
+      }
+
+      for (const marcador of marcadores) {
+        const numero = Number(marcador.match(/\\d+/)[0]);
+        const id = 'F' + numero;
+        if (!idsValidos.has(id)) {
+          throw new Error('A IA citou uma fonte inexistente (' + marcador + '). O texto foi bloqueado.');
+        }
+        marcadoresEncontrados.add(id);
+      }
+    }
+  }
+
+  if (marcadoresEncontrados.size === 0) {
+    throw new Error('A IA não vinculou nenhuma afirmação acadêmica às fontes recuperadas. A geração foi bloqueada para não produzir fundamentação sem evidências.');
+  }
+
+  return marcadoresEncontrados;
+}
+
 function validarSecoes(dados) {
   const obrigatorias = [
     'introducao',
@@ -124,6 +161,8 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     throw new Error('A IA retornou uma estrutura incompleta. Tente novamente; nenhum texto genérico será usado como substituto.');
   }
 
+  const fontesCitadas = validarVinculoDeEvidencias(parsed, fontes);
+
   const secoes = {};
   for (const chave of Object.keys(parsed)) {
     secoes[chave] = parsed[chave].map(paragrafo => substituirMarcadores(paragrafo, fontes));
@@ -135,14 +174,6 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     const numero = Number(marcador.match(/\d+/)[0]);
     if (!fontesCadastradas.has('F' + numero)) {
       throw new Error('A IA produziu uma citação sem fonte correspondente (' + marcador + '). Gere novamente após revisar as fontes.');
-    }
-  }
-
-  const fontesCitadas = new Set();
-  for (const valor of Object.values(parsed)) {
-    for (const paragrafo of valor) {
-      const encontrados = String(paragrafo).match(/\[F\d+\]/g) || [];
-      for (const marcador of encontrados) fontesCitadas.add(Number(marcador.match(/\d+/)[0]));
     }
   }
 
