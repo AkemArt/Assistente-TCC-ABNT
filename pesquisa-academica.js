@@ -736,17 +736,25 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '', opcoes = {}) 
   const gruposTermos = consultasIA.map(extrairTermos).filter(grupo => grupo.length);
   const trabalhosBrutos = [];
   const erros = [];
+  const temChaveOpenAlex = Boolean(chaveOpenAlex());
 
-  // Consultas sequenciais para respeitar os limites do serviço e reduzir 429.
-  for (let i = 0; i < consultas.length; i += 1) {
-    try {
-      const encontrados = await consultarOpenAlex(consultas[i], quantidade);
-      trabalhosBrutos.push(...encontrados);
-      if (i < consultas.length - 1) await aguardar(500);
-    } catch (error) {
-      erros.push(error && error.message || 'Falha na consulta');
-      // Se a OpenAlex estiver limitando, não insistir nas demais consultas.
-      if (/HTTP (?:429|401|403|409)|limite de requisições|sem chave/i.test(String(error.message || ''))) break;
+  // Sem chave própria, não consumir o orçamento compartilhado por IP. O Crossref
+  // é a rota direta de pesquisa bibliográfica até a chave OpenAlex ser configurada.
+  if (!temChaveOpenAlex) {
+    erros.push('OPENALEX_API_KEY não configurada; usando Crossref para evitar a cota compartilhada por IP.');
+    console.warn('ℹ️ OPENALEX_API_KEY ausente. Pulando OpenAlex e pesquisando diretamente no Crossref.');
+  } else {
+    // Consultas sequenciais para respeitar os limites do serviço e reduzir 429.
+    for (let i = 0; i < consultas.length; i += 1) {
+      try {
+        const encontrados = await consultarOpenAlex(consultas[i], quantidade);
+        trabalhosBrutos.push(...encontrados);
+        if (i < consultas.length - 1) await aguardar(500);
+      } catch (error) {
+        erros.push(error && error.message || 'Falha na consulta');
+        // Se a OpenAlex estiver limitando, não insistir nas demais consultas.
+        if (/HTTP (?:429|401|403|409)|limite de requisições|sem chave/i.test(String(error.message || ''))) break;
+      }
     }
   }
 
