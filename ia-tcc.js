@@ -373,6 +373,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
       'Autores: ' + (fonte.autores.join('; ') || 'Autoria não identificada'),
       'Ano: ' + (fonte.ano || 'Não informado'),
       'Periódico/fonte: ' + (fonte.revista || 'Não informado'),
+      'Tipo de publicação informado pela OpenAlex: ' + (fonte.tipo || 'Não classificado'),
       'DOI/link: ' + (fonte.doi || fonte.link || 'Não informado'),
       'Página do artigo: ' + (fonte.urlPaginaArtigo || fonte.link || 'Não informada'),
       'PDF em acesso aberto: ' + (fonte.pdfUrlVerificado || fonte.pdfUrl || 'Não localizado'),
