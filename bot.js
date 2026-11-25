@@ -116,6 +116,14 @@ async function processTccProject(interaction, project, totalLabel) {
       `${totalLabel}_save_project`
     );
     console.log(`✅ [${totalLabel}] Projeto salvo no banco. ID: ${saved?.id || 'não retornado'}`);
+    stats.recordEvent({
+      userId: interaction.user.id,
+      username: interaction.user.username,
+      guildId: interaction.guildId,
+      eventType: 'tcc_started'
+    }).catch(error => {
+      console.error(`⚠️ [${totalLabel}] Falha ao registrar início do TCC:`, describeError(error));
+    });
     if (!saved || !saved.id || saved.id === 'novo' || saved.id === 'sem-id') {
       throw new Error('O banco não confirmou o salvamento do projeto.');
     }
@@ -174,11 +182,6 @@ async function processTccProject(interaction, project, totalLabel) {
     `📦 [${totalLabel}] Arquivos validados — DOCX: ${rawDocx.length} bytes; PPTX: ${rawPptx.length} bytes.`
   );
 
-  await Promise.allSettled([
-    stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'tcc_started' }),
-    stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'document_generated' })
-  ]);
-
   const criarAnexos = () => [
     new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
     new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
@@ -200,6 +203,14 @@ async function processTccProject(interaction, project, totalLabel) {
     }
 
     console.log(`✅ [${totalLabel}] Discord confirmou os dois anexos na resposta privada original.`);
+    stats.recordEvent({
+      userId: interaction.user.id,
+      username: interaction.user.username,
+      guildId: interaction.guildId,
+      eventType: 'document_generated'
+    }).catch(error => {
+      console.error(`⚠️ [${totalLabel}] Falha ao registrar entrega dos documentos:`, describeError(error));
+    });
     return;
   } catch (privateError) {
     console.error(
@@ -219,6 +230,14 @@ async function processTccProject(interaction, project, totalLabel) {
       throw new Error('A mensagem privada não confirmou os dois anexos.');
     }
     console.log(`✅ [${totalLabel}] Discord confirmou a entrega dos dois arquivos por mensagem direta.`);
+    stats.recordEvent({
+      userId: interaction.user.id,
+      username: interaction.user.username,
+      guildId: interaction.guildId,
+      eventType: 'document_generated'
+    }).catch(error => {
+      console.error(`⚠️ [${totalLabel}] Falha ao registrar entrega dos documentos:`, describeError(error));
+    });
     await interaction.editReply({
       content: '✅ Os documentos foram enviados por mensagem direta. Confira sua caixa de entrada privada no Discord.',
       files: [],
