@@ -37,6 +37,7 @@ async function initTccProjects() {
       guild_id VARCHAR(64),
       student_name VARCHAR(150) NOT NULL,
       advisor_name VARCHAR(150) NOT NULL,
+      institution VARCHAR(200) NOT NULL DEFAULT '',
       institution_course VARCHAR(200) NOT NULL DEFAULT '',
       title TEXT NOT NULL,
       page_count VARCHAR(80) NOT NULL DEFAULT '10',
@@ -47,10 +48,37 @@ async function initTccProjects() {
     ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS guild_id VARCHAR(64);
     ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS student_name VARCHAR(150);
     ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS advisor_name VARCHAR(150);
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS institution VARCHAR(200);
     ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS institution_course VARCHAR(200);
     ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS title TEXT;
     ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS page_count VARCHAR(80);
     ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+
+  await db.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'tcc_projects'
+          AND column_name = 'institution'
+      ) THEN
+        ALTER TABLE tcc_projects ALTER COLUMN institution DROP NOT NULL;
+      END IF;
+
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'tcc_projects'
+          AND column_name = 'institution_course'
+      ) THEN
+        ALTER TABLE tcc_projects ALTER COLUMN institution_course DROP NOT NULL;
+      END IF;
+    END
+    $$;
   `);
 
   console.log('📚 Tabela de projetos de TCC (tcc_projects) verificada.');
@@ -61,11 +89,12 @@ async function saveProject(project) {
     project.courseAndInstitution ||
     [project.course, project.institution].filter(Boolean).join(' - ') ||
     'Curso / Instituição';
+  const institutionValue = String(project.institution || institutionCourse).slice(0, 200);
 
   const res = await db.query(
     `INSERT INTO tcc_projects
-      (discord_user_id, discord_username, guild_id, student_name, advisor_name, institution_course, title, page_count)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      (discord_user_id, discord_username, guild_id, student_name, advisor_name, institution, institution_course, title, page_count)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id, created_at`,
     [
       String(project.userId),
@@ -73,6 +102,7 @@ async function saveProject(project) {
       project.guildId ? String(project.guildId) : null,
       String(project.studentName).slice(0, 150),
       String(project.advisorName).slice(0, 150),
+      institutionValue,
       String(institutionCourse).slice(0, 200),
       String(project.title).slice(0, 1000),
       String(project.pageCount || project.focusNote || '10').slice(0, 80)
@@ -261,32 +291,40 @@ Regras obrigatórias:
   "referencias": ["referência 1", "referência 2"]
 }`;
 
-  try {
-    const modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        temperature: 0.45
+  const modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.45
+        }
+      });
+
+      const rawText = (response?.text || '').trim();
+      const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleanJson);
+
+      if (
+        Array.isArray(parsed.introducao) &&
+        Array.isArray(parsed.objetivos) &&
+        Array.isArray(parsed.fundamentacaoMetodologia) &&
+        Array.isArray(parsed.conclusao) &&
+        Array.isArray(parsed.referencias)
+      ) {
+        return parsed;
       }
-    });
-
-    const rawText = (response?.text || '').trim();
-    const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-    const parsed = JSON.parse(cleanJson);
-
-    if (
-      Array.isArray(parsed.introducao) &&
-      Array.isArray(parsed.objetivos) &&
-      Array.isArray(parsed.fundamentacaoMetodologia) &&
-      Array.isArray(parsed.conclusao) &&
-      Array.isArray(parsed.referencias)
-    ) {
-      return parsed;
+    } catch (err) {
+      const isUnavailable = err?.status === 503 || String(err?.message || '').includes('503');
+      if (isUnavailable && attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        continue;
+      }
+      console.warn('⚠️ Falha na geração por IA do corpo do TCC, usando redação adaptativa:', err?.message || err);
     }
-  } catch (err) {
-    console.warn('⚠️ Falha na geração por IA do corpo do TCC, usando redação adaptativa:', err?.message || err);
   }
 
   return buildFallbackContent(project, articles);
