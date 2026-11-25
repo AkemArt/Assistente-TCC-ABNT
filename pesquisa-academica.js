@@ -280,6 +280,10 @@ async function consultarOpenAlex(consulta, quantidade) {
     'per-page': String(quantidade),
     sort: 'relevance_score:desc'
   });
+  const email = emailContato();
+  if (email && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+    params.set('mailto', email);
+  }
   const url = BASE_URL + '?' + params.toString();
   let ultimoErro;
 
