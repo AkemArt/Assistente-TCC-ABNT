@@ -455,7 +455,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'OBJETIVO INFORMADO: ' + (objetivo || 'Ainda não informado; não invente objetivo específico.'),
     'EXTENSÃO SOLICITADA: aproximadamente ' + pageCount + ' páginas de conteúdo principal. Produza como meta cerca de ' + (pageCount * 250) + ' palavras nas seções principais. A paginação real varia com a diagramação, elementos pré-textuais e referências; não prometa número exato de páginas.',
     '',
-    'FONTES REAIS RECUPERADAS NA OPENALEX:',
+    'FONTES REAIS RECUPERADAS NAS BASES ACADÊMICAS INDICADAS EM CADA REGISTRO (OPENALEX OU CROSSREF):',
     fontesText,
     '',
     'REGRAS INEGOCIÁVEIS DE EVIDÊNCIA:',
