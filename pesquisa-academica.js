@@ -204,6 +204,17 @@ function pontuarRelevancia(termos, titulo, resumo) {
   return Math.round(tituloScore * 65 + resumoScore * 35);
 }
 
+const TIPOS_PUBLICACAO_ACADEMICA = new Set([
+  'article',
+  'review',
+  'proceedings-article',
+  'book-chapter'
+]);
+
+function tipoPublicacaoAcademicaAceito(tipo) {
+  return TIPOS_PUBLICACAO_ACADEMICA.has(String(tipo || '').toLowerCase());
+}
+
 function montarConsultas(tema, objetivo = '') {
   const termos = extrairTermos(tema);
   const termosObjetivo = extrairTermos(objetivo).slice(0, 5);
@@ -375,7 +386,11 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
   }
 
   const candidatos = [...unicos.values()]
-    .filter(item => item.pontuacaoRelevancia >= 15 && item.titulo && item.autores.length && item.ano && item.doi && item.link && item.resumo)
+    .filter(item =>
+      tipoPublicacaoAcademicaAceito(item.tipo) &&
+      item.pontuacaoRelevancia >= 15 &&
+      item.titulo && item.autores.length && item.ano && item.doi && item.link && item.resumo
+    )
     .sort((a, b) => b.pontuacaoRelevancia - a.pontuacaoRelevancia)
     .slice(0, Math.min(quantidade * 2, 20));
 
@@ -448,5 +463,6 @@ module.exports = {
   pontuarRelevancia,
   mapearTrabalho,
   verificarNoCrossref,
-  urlHttpsPublica
+  urlHttpsPublica,
+  tipoPublicacaoAcademicaAceito
 };
