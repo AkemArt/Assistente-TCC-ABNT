@@ -425,5 +425,5 @@ test('substitui marcadores pelo ID da fonte e usa somente as obras citadas nos s
     fonteCitata
   ]);
   assert.equal(substituirMarcadores('[F2]', fontesCitadas), '(Lovelace, 2024b)');
-  assert.equal(substituirMarcadores('[F2]', [fontesCitata]), '(Lovelace, 2024)');
+  assert.equal(substituirMarcadores('[F2]', [fonteCitata]), '(Lovelace, 2024)');
 });
