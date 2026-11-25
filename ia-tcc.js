@@ -493,8 +493,11 @@ async function gerarConsultasBusca(ai, tema, objetivo) {
 
 // Citações de autores consagrados: só entram as que a IA confirmou por busca na web e que
 // passam nesta validação. Mesmo assim ficam em seção própria, marcadas para conferência na obra.
-function validarCitacoesConsagradas(lista) {
+function validarCitacoesConsagradas(lista, urlsGroundingPermitidas = null) {
   const anoAtual = new Date().getFullYear();
+  const permitidas = Array.isArray(urlsGroundingPermitidas)
+    ? new Set(urlsGroundingPermitidas.map(url => String(url || '').trim()).filter(Boolean))
+    : null;
   const vistas = new Set();
   const validas = [];
   for (const item of Array.isArray(lista) ? lista : []) {
@@ -504,16 +507,28 @@ function validarCitacoesConsagradas(lista) {
     const citacao = String(item.citacao || '').replace(/^[“"']+|[”"']+$/g, '').trim();
     const obra = String(item.obra || '').trim();
     const relacao = String(item.relacao || '').trim();
+    const tituloFonte = String(item.tituloFonte || '').trim();
+    const urlFonte = String(item.urlFonte || '').trim();
     const ano = Number(item.ano);
     const palavras = contarPalavrasTexto(citacao);
-    if (!autor || !sobrenome || !obra || relacao.length < 15) continue;
+    let urlSegura = false;
+    try {
+      const parsed = new URL(urlFonte);
+      urlSegura = parsed.protocol === 'https:' && Boolean(parsed.hostname) &&
+        !parsed.username && !parsed.password;
+    } catch { /* URL inválida */ }
+    if (!autor || !sobrenome || !obra || relacao.length < 15 || !tituloFonte) continue;
+    if (!urlSegura || (permitidas && !permitidas.has(urlFonte))) continue;
     if (palavras < 4 || palavras > 40) continue;
     if (!Number.isInteger(ano) || ano < 1500 || ano > anoAtual) continue;
     if (item.confirmadaNaBusca !== true) continue;
     const chave = normalizarParaComparacao(autor + ' ' + citacao);
     if (vistas.has(chave)) continue;
     vistas.add(chave);
-    validas.push({ autor, sobrenome, citacao, obra, ano, relacao, traducaoLivre: item.traducaoLivre === true });
+    validas.push({
+      autor, sobrenome, citacao, obra, ano, relacao, tituloFonte, urlFonte,
+      traducaoLivre: item.traducaoLivre === true
+    });
   }
   return validas.slice(0, 5);
 }
@@ -522,7 +537,8 @@ function formatarCitacaoConsagrada(c) {
   const sufixo = c.traducaoLivre ? ', tradução nossa' : '';
   return [
     '“' + c.citacao + '” (' + c.sobrenome.toLocaleUpperCase('pt-BR') + ', ' + c.ano + sufixo + ').',
-    'Obra de referência: ' + c.autor + ', ' + c.obra + ' (' + c.ano + '). ' + c.relacao
+    'Obra de referência: ' + c.autor + ', ' + c.obra + ' (' + c.ano + '). ' + c.relacao,
+    'Fonte de verificação: ' + c.tituloFonte + ' — ' + c.urlFonte
   ];
 }
 
@@ -539,7 +555,7 @@ async function gerarCitacoesConsagradas(ai, { tema, objetivo }) {
     '3. "ano" é o ano da obra ou discurso de origem (número inteiro).',
     '4. Não invente. Se não confirmar 3, devolva menos; lista vazia é aceitável.',
     '5. "relacao" é uma frase explicando como a ideia se liga a este tema.',
-    'Responda SOMENTE com um array JSON, sem markdown: [{"autor":"Nome completo","sobrenome":"Sobrenome para a citação ABNT","citacao":"...","traducaoLivre":false,"obra":"título da obra ou discurso","ano":1962,"relacao":"...","confirmadaNaBusca":true}]'
+    'Para CADA citação, associe uma fonte de verificação que esteja entre os resultados da busca. Informe exatamente o título e a URL HTTPS da fonte retornada. Se não houver uma fonte que confirme a frase e a obra, descarte a citação. Responda SOMENTE com um array JSON, sem markdown: [{"autor":"Nome completo","sobrenome":"Sobrenome para a citação ABNT","citacao":"...","traducaoLivre":false,"obra":"título da obra ou discurso","ano":1962,"relacao":"...","tituloFonte":"Título exato do resultado que confirma a frase","urlFonte":"https://...","confirmadaNaBusca":true}]'
   ].join('\n');
 
   const resposta = await gerarConteudoGeminiComRetry(ai, {
@@ -559,8 +575,23 @@ async function gerarCitacoesConsagradas(ai, { tema, objetivo }) {
     console.warn('⚠️ Citações de autores descartadas: resposta fora do formato esperado.');
     return { citacoes: [], fontesBusca: [] };
   }
-  const fontesBusca = [...new Set(trechos.map(t => t?.web?.title).filter(Boolean))].slice(0, 8);
-  return { citacoes: validarCitacoesConsagradas(lista), fontesBusca };
+  const fontesGrounding = trechos.map(t => ({
+    titulo: String(t?.web?.title || '').trim(),
+    url: String(t?.web?.uri || '').trim()
+  })).filter(fonte => {
+    if (!fonte.titulo || !fonte.url) return false;
+    try {
+      const url = new URL(fonte.url);
+      return url.protocol === 'https:' && Boolean(url.hostname) && !url.username && !url.password;
+    } catch { return false; }
+  });
+  const urlsPermitidas = [...new Set(fontesGrounding.map(fonte => fonte.url))];
+  const citacoes = validarCitacoesConsagradas(lista, urlsPermitidas);
+  const fontesBusca = [...new Set(fontesGrounding.map(fonte => fonte.titulo + ' — ' + fonte.url))].slice(0, 8);
+  if (lista.length && !citacoes.length) {
+    console.warn('⚠️ Citações de autores descartadas: nenhuma associou a frase a uma URL HTTPS efetivamente retornada pela busca.');
+  }
+  return { citacoes, fontesBusca };
 }
 
 async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10, citacoesConsagradas = [], fontesBuscaCitacoes = [] }) {
