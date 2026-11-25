@@ -146,8 +146,8 @@ async function verificarNoCrossref(fonte) {
     }
     const datas = [registro.published, registro['published-print'], registro['published-online'], registro.issued]
       .filter(Boolean).map(d => d['date-parts'] && d['date-parts'][0] && Number(d['date-parts'][0][0])).filter(Boolean);
-    if (fonte.ano && datas.length && !datas.some(ano => Math.abs(ano - Number(fonte.ano)) <= 1)) {
-      return { ...fonte, verificacaoCrossref: 'Divergência de ano no Crossref' };
+    if (!datas.length || !fonte.ano || !datas.some(ano => Math.abs(ano - Number(fonte.ano)) <= 1)) {
+      return { ...fonte, verificacaoCrossref: 'Ano ausente ou divergente no Crossref' };
     }
     return { ...fonte, verificacaoCrossref: 'Confirmado no Crossref', crossrefUrl: registro.URL || null };
   } catch (error) {
