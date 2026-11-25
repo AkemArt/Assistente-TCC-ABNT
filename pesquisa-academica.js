@@ -575,26 +575,32 @@ function limparConsultaCrossref(consulta) {
     .slice(0, 200);
 }
 
-function montarParametrosCrossref(consulta, quantidade, { comSelect = true, comFiltro = true } = {}) {
+function montarParametrosCrossref(consulta, quantidade, {
+  comSelect = false,
+  comFiltro = false,
+  campoConsulta = 'query.bibliographic'
+} = {}) {
+  const termo = limparConsultaCrossref(consulta);
   const params = new URLSearchParams({
-    'query.bibliographic': limparConsultaCrossref(consulta),
-    rows: String(Math.min(Math.max(Number(quantidade) || 5, 1) * 4, 40))
+    [campoConsulta]: termo,
+    rows: String(Math.min(Math.max(Number(quantidade) || 5, 1) * 3, 30))
   });
-  // Artigos com resumo: o resumo é o que permite conferir o que o estudo realmente diz.
-  if (comFiltro) params.set('filter', 'type:journal-article,has-abstract:true');
+  if (comFiltro) params.set('filter', 'type:journal-article');
   if (comSelect) params.set('select', CAMPOS_SELECT_CROSSREF);
   const email = emailContato();
-  if (email) params.set('mailto', email);
+  if (email && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) params.set('mailto', email);
   return params;
 }
 
-// Se o Crossref recusar a consulta (HTTP 400), tenta variantes mais simples antes de desistir
-// e registra o motivo informado por ele, que é o que permite diagnosticar o problema.
+// Crossref recebe primeiro a consulta bibliográfica simples. Se a API rejeitar
+// algum parâmetro, reduzimos progressivamente a requisição e, por último,
+// tentamos o parâmetro genérico "query". A triagem acadêmica é feita localmente.
 async function buscarPaginaCrossref(consulta, quantidade) {
   const variantes = [
-    { comSelect: true, comFiltro: true },
-    { comSelect: false, comFiltro: true },
-    { comSelect: false, comFiltro: false }
+    { comSelect: false, comFiltro: false, campoConsulta: 'query.bibliographic' },
+    { comSelect: true, comFiltro: false, campoConsulta: 'query.bibliographic' },
+    { comSelect: false, comFiltro: true, campoConsulta: 'query.bibliographic' },
+    { comSelect: false, comFiltro: false, campoConsulta: 'query' }
   ];
   let ultimoErro;
   for (const variante of variantes) {
@@ -622,9 +628,10 @@ async function buscarPaginaCrossref(consulta, quantidade) {
         }
         if (resposta.status === 400) {
           let corpo = '';
-          try { corpo = String(await resposta.text()).replace(/\s+/g, ' ').slice(0, 160); } catch { /* sem corpo */ }
-          console.warn('⚠️ Crossref HTTP 400 (select=' + variante.comSelect + ', filtro=' + variante.comFiltro + '): ' + corpo);
-          ultimoErro = new Error('Crossref retornou HTTP 400 na busca alternativa.');
+          try { corpo = String(await resposta.text()).replace(/\\s+/g, ' ').slice(0, 240); } catch { /* sem corpo */ }
+          console.warn('⚠️ Crossref HTTP 400 (campo=' + variante.campoConsulta +
+            ', select=' + variante.comSelect + ', filtro=' + variante.comFiltro + '): ' + corpo);
+          ultimoErro = new Error('Crossref retornou HTTP 400 na busca alternativa (campo=' + variante.campoConsulta + ').');
           rejeitada = true;
           break;
         }
@@ -642,6 +649,7 @@ async function buscarPaginaCrossref(consulta, quantidade) {
       }
     }
     if (!rejeitada) break;
+    await aguardar(250);
   }
   throw ultimoErro || new Error('Falha de conexão na busca alternativa do Crossref.');
 }
