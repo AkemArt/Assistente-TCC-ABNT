@@ -5,7 +5,8 @@ const {
   extrairResumo,
   pontuarRelevancia,
   formatarReferenciaABNT,
-  mapearTrabalho
+  mapearTrabalho,
+  verificarNoCrossref
 } = require('../pesquisa-academica');
 const {
   formatarCitacao,
@@ -338,4 +339,44 @@ test('a auditoria semântica só aprova evidência classificada como sustentada'
     verificarSustentacaoSemantica(aiNaoSustenta, evidencias),
     /não comprovada/
   );
+});
+
+test('confirma metadados Crossref somente quando título, autoria e ano coincidem', async () => {
+  const fetchOriginal = globalThis.fetch;
+  const fonte = {
+    doi: '10.1234/teste',
+    titulo: 'A study about machine learning',
+    autores: ['Ada Lovelace', 'Grace Hopper'],
+    ano: 2024
+  };
+  try {
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        message: {
+          title: ['A study about machine learning'],
+          author: [{ family: 'Lovelace' }, { family: 'Hopper' }],
+          published: { 'date-parts': [[2024]] },
+          URL: 'https://doi.org/10.1234/teste'
+        }
+      })
+    });
+    const confirmado = await verificarNoCrossref(fonte);
+    assert.equal(confirmado.verificacaoCrossref, 'Confirmado no Crossref');
+
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        message: {
+          title: ['A study about machine learning'],
+          author: [{ family: 'Hopper' }, { family: 'Lovelace' }],
+          published: { 'date-parts': [[2024]] }
+        }
+      })
+    });
+    const divergente = await verificarNoCrossref(fonte);
+    assert.equal(divergente.verificacaoCrossref, 'Divergência de autoria no Crossref');
+  } finally {
+    globalThis.fetch = fetchOriginal;
+  }
 });
