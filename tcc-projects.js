@@ -1,4 +1,5 @@
 const db = require('./database');
+const { gerarRascunhoComPesquisa } = require('./ia-tcc');
 const {
   Document,
   Packer,
@@ -6,22 +7,21 @@ const {
   TextRun,
   HeadingLevel,
   AlignmentType,
-  PageBreak
+  PageBreak,
+  ExternalHyperlink
 } = require('docx');
 const PptxGenJS = require('pptxgenjs');
 
-let pesquisaAcademica = null;
-try {
-  pesquisaAcademica = require('./pesquisa-academica');
-} catch (_) {
-  pesquisaAcademica = null;
+function urlHttpsValida(valor) {
+  try {
+    return new URL(valor).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
-let GoogleGenAI = null;
-try {
-  ({ GoogleGenAI } = require('@google/genai'));
-} catch (_) {
-  GoogleGenAI = null;
+function normalizarDoi(valor) {
+  return String(valor || '').replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').replace(/^doi:/i, '');
 }
 
 async function initTccProjects() {
@@ -45,11 +45,18 @@ async function initTccProjects() {
     );
   `);
 
+  // Migração aditiva e segura: registra o objetivo sem apagar dados existentes.
+  await db.query(`
+    ALTER TABLE tcc_projects
+    ADD COLUMN IF NOT EXISTS objective TEXT NOT NULL DEFAULT '';
+  `);
+
   console.log('📚 Tabela de projetos de TCC (tcc_projects) verificada.');
 }
 
 async function saveProject(project) {
-  await initTccProjects().catch(() => {});
+  // Não ignora falhas de migração: o objetivo precisa ser persistido corretamente.
+  await initTccProjects();
 
   const institutionCourse =
     project.courseAndInstitution ||
@@ -90,6 +97,9 @@ async function saveProject(project) {
     title,
     titulo: title,
     tema: title,
+    objective: String(project.objective || project.problem || '').slice(0, 2000),
+    objetivo: String(project.objective || project.problem || '').slice(0, 2000),
+    project_objective: String(project.objective || project.problem || '').slice(0, 2000),
     page_count: pageCount,
     paginas: pageCount,
     folhas: pageCount
@@ -144,83 +154,6 @@ async function saveProject(project) {
   return res.rows[0] || { id: 'novo' };
 }
 
-function reconstructAbstract(invertedIndex) {
-  if (!invertedIndex || typeof invertedIndex !== 'object') return '';
-  const pairs = [];
-  for (const [word, positions] of Object.entries(invertedIndex)) {
-    if (Array.isArray(positions)) {
-      for (const pos of positions) {
-        pairs.push([pos, word]);
-      }
-    }
-  }
-  pairs.sort((a, b) => a[0] - b[0]);
-  return pairs.map(p => p[1]).join(' ').trim();
-}
-
-async function fetchRealArticles(project) {
-  const queryText = `${project.title} ${project.courseAndInstitution || project.course || ''}`.trim();
-
-  if (pesquisaAcademica) {
-    const fn =
-      pesquisaAcademica.buscarArtigos ||
-      pesquisaAcademica.pesquisarArtigos ||
-      pesquisaAcademica.buscarTrabalhos ||
-      pesquisaAcademica.pesquisar;
-    if (typeof fn === 'function') {
-      try {
-        const res = await fn({ tema: project.title, curso: project.course || project.courseAndInstitution || '', limite: 6 });
-        const list = Array.isArray(res) ? res : (res?.artigos || res?.fontes || res?.results || []);
-        if (list.length > 0) {
-          return list.slice(0, 6).map(item => ({
-            title: item.title || item.titulo || 'Artigo científico',
-            authors: Array.isArray(item.authors || item.autores)
-              ? (item.authors || item.autores).map(a => (typeof a === 'string' ? a : a.name)).filter(Boolean)
-              : [item.author || item.autor].filter(Boolean),
-            year: item.year || item.ano || item.publication_year || 's.d.',
-            venue: item.venue || item.journal || item.revista || 'Periódico científico',
-            doiOrUrl: item.doi || item.url || item.link || '',
-            abstract: item.abstract || item.resumo || ''
-          }));
-        }
-      } catch (err) {
-        console.warn('⚠️ Falha no módulo pesquisa-academica, tentando OpenAlex direto:', err?.message || err);
-      }
-    }
-  }
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
-    const url = `https://api.openalex.org/works?search=${encodeURIComponent(queryText)}&per-page=6`;
-    const resp = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!resp.ok) return [];
-
-    const data = await resp.json();
-    const works = Array.isArray(data?.results) ? data.results : [];
-    return works.map(w => {
-      const authors = Array.isArray(w.authorships)
-        ? w.authorships.map(a => a?.author?.display_name).filter(Boolean).slice(0, 4)
-        : [];
-      const abstract = reconstructAbstract(w.abstract_inverted_index);
-      const venue = w.primary_location?.source?.display_name || 'Base OpenAlex';
-      const doiOrUrl = w.doi || w.primary_location?.landing_page_url || '';
-      return {
-        title: w.title || 'Trabalho acadêmico',
-        authors,
-        year: w.publication_year || 's.d.',
-        venue,
-        doiOrUrl,
-        abstract: abstract.slice(0, 500)
-      };
-    });
-  } catch (err) {
-    console.warn('⚠️ Não foi possível consultar a OpenAlex:', err?.message || err);
-    return [];
-  }
-}
-
 function getThemePalette(project) {
   const text = `${project.title || ''} ${project.courseAndInstitution || ''}`.toLowerCase();
   if (text.includes('finan') || text.includes('econ') || text.includes('contab') || text.includes('invest')) {
@@ -233,133 +166,6 @@ function getThemePalette(project) {
     return { primary: '0F4C81', secondary: '1D4ED8', accent: '0284C7', label: 'Saúde e Ciências Humanas' };
   }
   return { primary: '1E293B', secondary: '334155', accent: '2563EB', label: 'Tecnologia e Análise Aplicada' };
-}
-
-function buildFallbackContent(project, articles) {
-  const title = project.title;
-  const course = project.courseAndInstitution || project.course || 'o curso';
-  const advisor = project.advisorName;
-  const student = project.studentName;
-  const pages = project.pageCount || '10';
-
-  const articleSummary = articles.length
-    ? articles
-        .slice(0, 3)
-        .map(a => `${a.authors.join(', ') || 'Autoria não informada'} (${a.year}) investigou "${a.title}" em ${a.venue}.`)
-        .join(' ')
-    : `A literatura especializada em ${course} aponta a necessidade de alinhar modelos analíticos e evidências empíricas ao contexto específico de "${title}".`;
-
-  const refs = articles.length
-    ? articles.map(a => {
-        const aut = a.authors.length ? a.authors.join('; ').toUpperCase() : 'AUTOR DESCONHECIDO';
-        return `${aut}. ${a.title}. ${a.venue}, ${a.year}.${a.doiOrUrl ? ` Disponível em: ${a.doiOrUrl}.` : ''}`;
-      })
-    : [
-        'ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. NBR 14724: informação e documentação — trabalhos acadêmicos — apresentação. Rio de Janeiro: ABNT, 2011.',
-        'ASSOCIAÇÃO BRASILEIRA DE NORMAS TÉCNICAS. NBR 6023: informação e documentação — referências — elaboração. Rio de Janeiro: ABNT, 2018.'
-      ];
-
-  return {
-    introducao: [
-      `Este trabalho investiga "${title}" no âmbito de ${course}, sob orientação de ${advisor}, com estrutura planejada para cerca de ${pages} páginas.`,
-      `Ao tratar de "${title}", busca-se examinar como fundamentos teóricos, dados confiáveis e critérios de decisão se articulam na prática profissional contemporânea.`,
-      `Problema de pesquisa: de que maneira os conceitos e evidências associados a "${title}" podem ser aplicados de forma rigorosa e verificável para resolver desafios concretos da área?`,
-      `Proposta de solução: construir um percurso analítico estruturado em levantamento bibliográfico específico, definição de critérios de avaliação e aplicação orientada ao cenário do estudo.`
-    ],
-    objetivos: [
-      `Objetivo geral: analisar "${title}" à luz de estudos científicos e referências pertinentes ao tema, apresentando uma abordagem fundamentada para o problema investigado.`,
-      `Objetivos específicos: (a) mapear estudos e conceitos centrais relacionados a "${title}"; (b) identificar entraves práticos e limitações recorrentes na área; (c) propor diretrizes aplicáveis ao contexto investigado; e (d) sintetizar conclusões e recomendações para pesquisas futuras.`
-    ],
-    fundamentacaoMetodologia: [
-      `A fundamentação teórica sobre "${title}" apoia-se em estudos publicados e na análise crítica das abordagens aplicadas ao tema. ${articleSummary}`,
-      `Para conferir consistência argumentativa, citações e referências devem dialogar diretamente com o domínio específico do trabalho — seja em finanças, sustentabilidade ambiental, gestão ou tecnologia — evitando generalizações desconectadas do objeto de estudo.`,
-      `Metodologicamente, o estudo adota abordagem qualitativa e analítica com base em revisão bibliográfica direcionada e exame crítico de fontes científicas, cabendo ao autor (${student}) complementar com dados próprios e validação junto a ${advisor}.`
-    ],
-    conclusao: [
-      `Os elementos reunidos sobre "${title}" demonstram que a solidez de um TCC depende da aderência entre o problema delimitado, as evidências científicas consultadas e a clareza da argumentação.`,
-      `Recomenda-se que ${student} aprofunde a análise crítica das fontes recuperadas e valide os encaminhamentos finais com ${advisor} antes da entrega definitiva.`
-    ],
-    referencias: refs
-  };
-}
-
-async function generateAcademicBodyWithAI(project, articles) {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!GoogleGenAI || !apiKey) {
-    return buildFallbackContent(project, articles);
-  }
-
-  const ai = new GoogleGenAI({ apiKey });
-  const articlesText = articles.length
-    ? articles
-        .map(
-          (a, i) =>
-            `[${i + 1}] Título: ${a.title} | Autores: ${a.authors.join(', ') || 'N/I'} | Ano: ${a.year} | Fonte: ${a.venue} | Link/DOI: ${a.doiOrUrl || 'N/I'} | Resumo: ${a.abstract || 'Sem resumo disponível'}`
-        )
-        .join('\n')
-    : 'Nenhum artigo externo retornado nesta consulta; utilize apenas referências reais consolidadas do domínio do tema e normas técnicas.';
-
-  const prompt = `Você é um redator acadêmico rigoroso em língua portuguesa.
-Redija o conteúdo específico e NÃO padronizado para um trabalho acadêmico com os seguintes dados:
-- Aluno(a): ${project.studentName}
-- Curso / Instituição: ${project.courseAndInstitution || project.course || 'Não informado'}
-- Orientador(a): ${project.advisorName}
-- Tema / Título: ${project.title}
-- Quantidade de páginas desejada: ${project.pageCount || '10'}
-
-Artigos reais recuperados na pesquisa:
-${articlesText}
-
-Regras obrigatórias:
-1. Escreva texto original, fluido e específico para o tema "${project.title}". NUNCA use frases genéricas repetitivas como "No desdobramento de... (etapa 1)".
-2. Use citações e menções a estudiosos, pesquisadores ou figuras reconhecidas que façam sentido direto para o tema específico (por exemplo, teóricos/pesquisadores de finanças ou economia quando o tema for finanças; cientistas ou lideranças ambientais quando o tema for meio ambiente; autores da área técnica quando o tema for computação/IA). Nunca invente citações falsas nem artigos fictícios.
-3. Priorize os artigos reais listados acima na fundamentação e na lista de referências.
-4. Responda APENAS em JSON válido com exatamente estas chaves:
-{
-  "introducao": ["parágrafo 1", "parágrafo 2", "..."],
-  "objetivos": ["parágrafo objetivo geral", "parágrafo objetivos específicos"],
-  "fundamentacaoMetodologia": ["parágrafo 1", "parágrafo 2", "..."],
-  "conclusao": ["parágrafo 1", "parágrafo 2"],
-  "referencias": ["referência 1", "referência 2"]
-}`;
-
-  const modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    try {
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.45
-        }
-      });
-
-      const rawText = (response?.text || '').trim();
-      const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
-      const parsed = JSON.parse(cleanJson);
-
-      if (
-        Array.isArray(parsed.introducao) &&
-        Array.isArray(parsed.objetivos) &&
-        Array.isArray(parsed.fundamentacaoMetodologia) &&
-        Array.isArray(parsed.conclusao) &&
-        Array.isArray(parsed.referencias)
-      ) {
-        return parsed;
-      }
-    } catch (err) {
-      const isUnavailable = err?.status === 503 || String(err?.message || '').includes('503');
-      if (isUnavailable && attempt < 2) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        continue;
-      }
-      console.warn('⚠️ Falha na geração por IA do corpo do TCC, usando redação adaptativa:', err?.message || err);
-    }
-  }
-
-  return buildFallbackContent(project, articles);
 }
 
 function abntParagraph(text, { bold = false, align = AlignmentType.JUSTIFIED, firstLineIndent = 708, spaceAfter = 120 } = {}) {
@@ -394,10 +200,19 @@ function sectionHeading(text) {
   });
 }
 
-async function generateTccDocx(project) {
+async function generateTccResearch(project) {
+  return gerarRascunhoComPesquisa({
+    tema: project.title,
+    objetivo: project.objective || project.problem || '',
+    limite: 8,
+    pageCount: Number(project.pageCount) || 10
+  });
+}
+
+async function generateTccDocx(project, pesquisa = null) {
   const institutionCourse = project.courseAndInstitution || project.course || 'CURSO E INSTITUIÇÃO';
-  const articles = await fetchRealArticles(project);
-  const content = await generateAcademicBodyWithAI(project, articles);
+  const resultadoPesquisa = pesquisa || await generateTccResearch(project);
+  const secoes = resultadoPesquisa.secoes;
 
   const children = [
     new Paragraph({
@@ -408,97 +223,157 @@ async function generateTccDocx(project) {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 800, after: 400 },
-      children: [new TextRun({ text: String(project.studentName).toUpperCase(), font: 'Times New Roman', size: 24, bold: true })]
+      children: [new TextRun({ text: String(project.studentName || '').toUpperCase(), font: 'Times New Roman', size: 24, bold: true })]
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 1200, after: 1600 },
-      children: [new TextRun({ text: String(project.title).toUpperCase(), font: 'Times New Roman', size: 28, bold: true })]
+      children: [new TextRun({ text: String(project.title || '').toUpperCase(), font: 'Times New Roman', size: 28, bold: true })]
     }),
-    new Paragraph({
+    ...(project.city || project.location ? [new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 1400 },
-      children: [new TextRun({ text: 'CARAGUATATUBA — 2026', font: 'Times New Roman', size: 24, bold: true })]
+      children: [new TextRun({ text: String(project.city || project.location).toUpperCase(), font: 'Times New Roman', size: 24, bold: true })]
+    })] : []),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 200 },
+      children: [new TextRun({ text: String(project.year || new Date().getFullYear()), font: 'Times New Roman', size: 24, bold: true })]
     }),
-    new Paragraph({ children: [new PageBreak()] }),
-
-    sectionHeading('1 Introdução, Problema e Proposta de Solução'),
-    ...content.introducao.map(p => abntParagraph(p)),
-
-    sectionHeading('2 Objetivos'),
-    ...content.objetivos.map(p => abntParagraph(p)),
-
-    sectionHeading('3 Fundamentação Teórica e Metodologia'),
-    ...content.fundamentacaoMetodologia.map(p => abntParagraph(p)),
-
-    sectionHeading('4 Conclusão'),
-    ...content.conclusao.map(p => abntParagraph(p)),
-
-    sectionHeading('Referências'),
-    ...content.referencias.map(ref =>
-      abntParagraph(ref, { align: AlignmentType.LEFT, firstLineIndent: 0, spaceAfter: 180 })
-    )
+    new Paragraph({ children: [new PageBreak()] })
   ];
 
+  const secoesDocumento = [
+    ['1 INTRODUÇÃO', secoes.introducao],
+    ['2 PROBLEMA DE PESQUISA', secoes.problemaPesquisa],
+    ['3 OBJETIVOS', secoes.objetivos],
+    ['4 FUNDAMENTAÇÃO TEÓRICA', secoes.fundamentacaoTeorica],
+    ['5 METODOLOGIA', secoes.metodologia],
+    ['6 DISCUSSÃO', secoes.discussao],
+    ['7 CONCLUSÃO', secoes.conclusao],
+    ['8 LIMITAÇÕES DAS FONTES', secoes.limitacoes],
+    ['9 PONTOS PARA VERIFICAÇÃO', secoes.verificacoes]
+  ];
+
+  for (const [titulo, paragrafos] of secoesDocumento) {
+    children.push(sectionHeading(titulo));
+    for (const paragrafo of paragrafos || []) {
+      children.push(abntParagraph(paragrafo));
+    }
+  }
+
+  children.push(sectionHeading('REFERÊNCIAS'));
+  for (let i = 0; i < (resultadoPesquisa.referencias || []).length; i += 1) {
+    const referencia = resultadoPesquisa.referencias[i];
+    children.push(abntParagraph(referencia, {
+      align: AlignmentType.LEFT,
+      firstLineIndent: 0,
+      spaceAfter: 100
+    }));
+    const fonte = (resultadoPesquisa.fontesCitadas || resultadoPesquisa.fontes || []).find(item =>
+      item.titulo && referencia.includes(item.titulo)
+    );
+    const urlArtigo = fonte && (fonte.urlPaginaArtigo || fonte.link ||
+      (fonte.doi ? 'https://doi.org/' + normalizarDoi(fonte.doi) : null));
+    if (urlArtigo && urlHttpsValida(urlArtigo)) {
+      children.push(new Paragraph({
+        indent: { left: 360 },
+        spacing: { after: 180 },
+        children: [new ExternalHyperlink({
+          link: urlArtigo,
+          children: [new TextRun({ text: 'Acessar artigo / página oficial', style: 'Hyperlink', font: 'Times New Roman', size: 20 })]
+        })]
+      }));
+    }
+    const pdfConsultado = fonte && (fonte.pdfUrlVerificado || fonte.pdfUrl);
+    if (pdfConsultado && urlHttpsValida(pdfConsultado)) {
+      children.push(new Paragraph({
+        indent: { left: 360 },
+        spacing: { after: 100 },
+        children: [new ExternalHyperlink({
+          link: pdfConsultado,
+          children: [new TextRun({ text: fonte.textoCompleto ? 'Abrir PDF consultado (texto extraído)' : 'Tentar abrir PDF em acesso aberto', style: 'Hyperlink', font: 'Times New Roman', size: 20 })]
+        })]
+      }));
+    }
+    if (fonte) {
+      children.push(abntParagraph(
+        'Situação da consulta: ' + String(fonte.statusTextoCompleto || 'Texto integral não extraído; consultar página do artigo e resumo.'),
+        { align: AlignmentType.LEFT, firstLineIndent: 0, spaceAfter: 180 }
+      ));
+    }
+  }
+
+  children.push(abntParagraph(
+    'Nota de normalização: estas referências são preliminares e foram montadas com os metadados recuperados. Confira os dados ausentes e revise a apresentação conforme a ABNT NBR 6023:2025, a ABNT NBR 10520:2023 e o manual vigente da instituição.',
+    { align: AlignmentType.JUSTIFIED, firstLineIndent: 0, spaceAfter: 240 }
+  ));
+  children.push(sectionHeading('RELATÓRIO DA PESQUISA'));
+  for (const linha of String(resultadoPesquisa.relatorioPesquisa || '').split('\n').filter(Boolean)) {
+    if (/^(MATRIZ DE RASTREABILIDADE DAS AFIRMAÇÕES|AFIRMAÇÃO \d+)$/.test(linha.trim())) {
+      children.push(sectionHeading(linha.trim()));
+      continue;
+    }
+    children.push(abntParagraph(linha, {
+      align: AlignmentType.LEFT,
+      firstLineIndent: 0,
+      spaceAfter: 100
+    }));
+  }
+
   const doc = new Document({
-    sections: [
-      {
-        properties: {
-          page: {
-            margin: {
-              top: 1701,
-              left: 1701,
-              bottom: 1134,
-              right: 1134
-            }
+    sections: [{
+      properties: {
+        page: {
+          margin: {
+            top: 1701,
+            left: 1701,
+            bottom: 1134,
+            right: 1134
           }
-        },
-        children
-      }
-    ]
+        }
+      },
+      children
+    }]
   });
 
   return Packer.toBuffer(doc);
 }
 
-async function generateTccPptx(project) {
+async function generateTccPptx(project, pesquisa = null) {
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_16x9';
   const palette = getThemePalette(project);
   const institutionCourse = project.courseAndInstitution || project.course || 'Trabalho Acadêmico';
+  const secoes = pesquisa?.secoes || {};
 
-  const s1 = pptx.addSlide();
-  s1.background = { color: palette.primary };
-  s1.addText(palette.label.toUpperCase(), {
+  const slideCapa = pptx.addSlide();
+  slideCapa.background = { color: palette.primary };
+  slideCapa.addText(palette.label.toUpperCase(), {
     x: 0.8, y: 0.7, w: 11.5, h: 0.4,
     fontSize: 13, bold: true, color: 'E2E8F0'
   });
-  s1.addText(String(project.title), {
+  slideCapa.addText(String(project.title), {
     x: 0.8, y: 1.5, w: 11.5, h: 2.2,
     fontSize: 28, bold: true, color: 'FFFFFF'
   });
-  s1.addText(`Autor(a): ${project.studentName}   |   Orientador(a): ${project.advisorName}`, {
+  slideCapa.addText(`Autor(a): ${project.studentName} | Orientador(a): ${project.advisorName}`, {
     x: 0.8, y: 4.3, w: 11.5, h: 0.5,
     fontSize: 15, color: 'F8FAFC'
   });
-  s1.addText(`${institutionCourse} • ${project.pageCount || '10'} páginas`, {
+  slideCapa.addText(`${institutionCourse} • ${project.pageCount || '10'} páginas solicitadas`, {
     x: 0.8, y: 4.9, w: 11.5, h: 0.4,
     fontSize: 13, color: 'CBD5E1'
   });
 
+  const resumoSecao = (chave) => (Array.isArray(secoes[chave]) ? secoes[chave] : []).join('\n\n');
   const slidesData = [
-    {
-      heading: 'Contexto e Problema de Pesquisa',
-      body: `Investigação focada em "${project.title}" no contexto de ${institutionCourse}, buscando compreender os fatores determinantes, lacunas práticas e evidências científicas que orientam decisões consistentes na área.`
-    },
-    {
-      heading: 'Objetivos e Abordagem Metodológica',
-      body: `Analisar "${project.title}" com base em fontes científicas e literatura especializada, estruturando a discussão de forma crítica e verificável sob orientação de ${project.advisorName}.`
-    },
-    {
-      heading: 'Síntese e Próximos Passos',
-      body: `Revisar as fontes recuperadas, aprofundar a análise específica do tema e validar a versão final com ${project.advisorName} e os critérios acadêmicos da instituição.`
-    }
+    { heading: 'Objetivo do projeto', body: project.objective || project.problem || 'Objetivo não informado.' },
+    { heading: 'Introdução e problema de pesquisa', body: resumoSecao('introducao') + '\n\n' + resumoSecao('problemaPesquisa') },
+    { heading: 'Objetivos e fundamentação teórica', body: resumoSecao('objetivos') + '\n\n' + resumoSecao('fundamentacaoTeorica') },
+    { heading: 'Metodologia proposta', body: resumoSecao('metodologia') },
+    { heading: 'Discussão e conclusão', body: resumoSecao('discussao') + '\n\n' + resumoSecao('conclusao') },
+    { heading: 'Fontes e verificações', body: (pesquisa?.referencias || []).join('\n') + '\n\n' + (pesquisa?.relatorioPesquisa || 'Consulte os textos originais e valide as referências com o orientador.') }
   ];
 
   for (const item of slidesData) {
@@ -508,11 +383,60 @@ async function generateTccPptx(project) {
       x: 0.7, y: 0.6, w: 12, h: 0.6,
       fontSize: 24, bold: true, color: palette.primary
     });
-    slide.addText(item.body, {
-      x: 0.7, y: 1.5, w: 12, h: 3.8,
-      fontSize: 17, color: '1E293B', valign: 'top'
+    slide.addText(String(item.body || 'Conteúdo a desenvolver.'), {
+      x: 0.7, y: 1.35, w: 12, h: 5.4,
+      fontSize: 13, color: '1E293B', valign: 'top',
+      breakLine: false, paraSpaceAfterPt: 8, fit: 'shrink'
     });
   }
+
+  for (const fonte of (pesquisa?.fontesCitadas || pesquisa?.fontes || [])) {
+    const slide = pptx.addSlide();
+    slide.background = { color: 'F8FAFC' };
+    slide.addText('Referência bibliográfica e acesso ao estudo', {
+      x: 0.7, y: 0.6, w: 12, h: 0.6,
+      fontSize: 23, bold: true, color: palette.primary
+    });
+    slide.addText(String(fonte.titulo || 'Título não informado'), {
+      x: 0.8, y: 1.5, w: 11.7, h: 1.1,
+      fontSize: 20, bold: true, color: '1E293B', valign: 'top', fit: 'shrink'
+    });
+    slide.addText(String((fonte.autores || []).join('; ') + ' (' + (fonte.anoReferencia || fonte.ano || 's.d.') + ')'), {
+      x: 0.8, y: 2.8, w: 11.7, h: 0.6,
+      fontSize: 14, color: '334155', valign: 'top'
+    });
+    const urlArtigo = fonte.urlPaginaArtigo || fonte.link ||
+      (fonte.doi ? 'https://doi.org/' + normalizarDoi(fonte.doi) : null);
+    if (urlArtigo && urlHttpsValida(urlArtigo)) {
+      slide.addText([{ text: 'Abrir página oficial do artigo / DOI', options: { hyperlink: { url: urlArtigo, tooltip: 'Abrir artigo ou registro DOI' }, color: '0563C1', underline: { color: '0563C1' } } }], {
+        x: 0.8, y: 3.8, w: 11.7, h: 0.45, fontSize: 16
+      });
+    }
+    const pdfConsultado = fonte.pdfUrlVerificado || fonte.pdfUrl;
+    if (pdfConsultado && urlHttpsValida(pdfConsultado)) {
+      slide.addText([{ text: fonte.textoCompleto ? 'Abrir PDF consultado (texto extraído)' : 'Tentar abrir PDF em acesso aberto', options: { hyperlink: { url: pdfConsultado, tooltip: 'Abrir PDF do artigo' }, color: '0563C1', underline: { color: '0563C1' } } }], {
+        x: 0.8, y: 4.45, w: 11.7, h: 0.45, fontSize: 16
+      });
+    }
+    slide.addText('Situação do texto: ' + String(fonte.statusTextoCompleto || 'Não verificada') + '\nMetadados: ' + String(fonte.verificacaoCrossref || 'Não verificados'), {
+      x: 0.8, y: 5.25, w: 11.7, h: 0.8, fontSize: 12, color: '475569', valign: 'top'
+    });
+  }
+
+  const nota = pptx.addSlide();
+  nota.background = { color: 'F8FAFC' };
+  nota.addText('Nota sobre referências e normalização', {
+    x: 0.7, y: 0.6, w: 12, h: 0.6,
+    fontSize: 23, bold: true, color: palette.primary
+  });
+  nota.addText(
+    'As referências desta apresentação são preliminares e utilizam os metadados recuperados. Confira os dados ausentes e revise a apresentação conforme a ABNT NBR 6023:2025, a ABNT NBR 10520:2023 e o manual vigente da instituição. A auditoria automatizada não substitui a leitura crítica dos artigos pelo estudante e pelo orientador.',
+    {
+      x: 0.8, y: 1.5, w: 11.7, h: 3.2,
+      fontSize: 18, color: '334155', valign: 'top',
+      breakLine: false, fit: 'shrink'
+    }
+  );
 
   return pptx.write({ outputType: 'nodebuffer' });
 }
@@ -520,6 +444,7 @@ async function generateTccPptx(project) {
 module.exports = {
   initTccProjects,
   saveProject,
+  generateTccResearch,
   generateTccDocx,
   generateTccPptx
 };

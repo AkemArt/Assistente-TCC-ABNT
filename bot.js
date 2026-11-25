@@ -46,6 +46,7 @@ const client = new Client({
 });
 
 const cooldown = new Map();
+const pendingTccProjects = new Map();
 
 function describeError(error) {
   return {
@@ -68,6 +69,115 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeoutPromise]).finally(() => {
     clearTimeout(timer);
   });
+}
+
+function buildTccPageCountMenu(customId) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder('Selecione a quantidade de páginas')
+    .addOptions(
+      { label: '10 páginas', value: '10', description: 'Trabalho curto' },
+      { label: '15 páginas', value: '15' },
+      { label: '20 páginas', value: '20' },
+      { label: '25 páginas', value: '25' },
+      { label: '30 páginas', value: '30' },
+      { label: '40 páginas', value: '40' },
+      { label: '50 páginas', value: '50' },
+      { label: '60 páginas', value: '60' }
+    );
+  return new ActionRowBuilder().addComponents(select);
+}
+
+async function processTccProject(interaction, project, totalLabel) {
+  let saved = { id: 'novo' };
+  try {
+    saved = await tccProjects.saveProject(project);
+    if (!saved || !saved.id || saved.id === 'novo' || saved.id === 'sem-id') {
+      throw new Error('O banco não confirmou o salvamento do projeto.');
+    }
+  } catch (dbErr) {
+    console.error(`❌ [${totalLabel}] Não foi possível salvar o projeto no banco:`, describeError(dbErr));
+    throw new Error('Não foi possível salvar seu projeto no banco de dados. Nenhum documento será apresentado como concluído. Tente novamente mais tarde.');
+  }
+
+  // Informa ao usuário que a etapa demorada está em andamento, em vez de deixar a interação aparentemente parada.
+  await interaction.editReply({
+    content: '🔎 Projeto registrado. Estou pesquisando artigos científicos e conferindo DOI, título, autoria, ano e relação das fontes com seu tema e objetivo. Essa etapa pode levar alguns minutos.'
+  });
+
+  // Uma única pesquisa e uma única redação servem de base aos dois documentos.
+  const pesquisa = await withTimeout(
+    tccProjects.generateTccResearch(project),
+    540000,
+    `${totalLabel}_academic_research`
+  );
+
+  await interaction.editReply({
+    content: '🧾 A pesquisa foi concluída e as afirmações citadas passaram pela conferência de evidências. Estou preparando o Word com a matriz de rastreabilidade e o PowerPoint com os links dos artigos.'
+  });
+
+  const [docxBuffer, pptxBuffer] = await Promise.all([
+    tccProjects.generateTccDocx(project, pesquisa),
+    tccProjects.generateTccPptx(project, pesquisa)
+  ]);
+
+  const rawDocx = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer);
+  const rawPptx = Buffer.isBuffer(pptxBuffer) ? pptxBuffer : Buffer.from(pptxBuffer);
+
+  await Promise.allSettled([
+    stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'tcc_started' }),
+    stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'document_generated' })
+  ]);
+
+  await interaction.editReply({
+    content: '📤 Os documentos foram gerados. Estou enviando os arquivos agora.'
+  });
+
+  const files = [
+    new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
+    new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
+  ];
+
+  let enviado = false;
+  if (interaction.channel && typeof interaction.channel.send === 'function') {
+    try {
+      await withTimeout(interaction.channel.send({
+        content: `📄 <@${interaction.user.id}> — Ficheiros do projeto nº ${saved.id} (${project.studentName}) — Word ABNT e PowerPoint:`,
+        files
+      }), 12000, `${totalLabel}_channel_send`);
+      enviado = true;
+    } catch (channelErr) {
+      console.warn(`⚠️ [${totalLabel}] Falha no channel.send, tentando followUp:`, describeError(channelErr));
+    }
+  }
+
+  if (!enviado) {
+    await withTimeout(interaction.followUp({
+      content: `📄 Ficheiros do projeto nº ${saved.id} (${project.studentName}) — Word ABNT e PowerPoint:`,
+      files: [
+        new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
+        new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
+      ]
+    }), 12000, `${totalLabel}_followUp_fallback`);
+  }
+
+  const resumo = new EmbedBuilder()
+    .setTitle('📚 Projeto de TCC processado, Word ABNT e PowerPoint criados')
+    .setDescription(`Projeto nº ${saved.id} processado com estrutura acadêmica e apresentação prontos para revisão.`)
+    .addFields(
+      { name: 'Aluno(a)', value: project.studentName, inline: false },
+      { name: 'Curso e Instituição', value: project.courseAndInstitution, inline: false },
+      { name: 'Orientador(a)', value: project.advisorName, inline: true },
+      { name: 'Objetivo do projeto', value: project.objective, inline: false },
+      { name: 'Quantidade de páginas solicitada', value: String(project.pageCount), inline: true },
+      { name: 'Título / Tema', value: project.title, inline: false }
+    )
+    .setColor('#5865F2');
+
+  await interaction.editReply({
+    content: '✅ Ficheiros Word (.docx) + PowerPoint (.pptx) enviados! Confira o conteúdo e valide as referências nos textos originais.',
+    embeds: [resumo]
+  }).catch(() => {});
 }
 
 function buildKeepConnectedMenu(currentValue = true) {
@@ -365,6 +475,30 @@ client.on(Events.InteractionCreate, async interaction => {
   // ====================================================
 
   if (interaction.isStringSelectMenu()) {
+    if (interaction.customId.startsWith('tcc_pages_')) {
+      const pending = pendingTccProjects.get(interaction.customId);
+      if (!pending || pending.userId !== interaction.user.id) {
+        return interaction.reply({ content: '⚠️ Esta etapa expirou ou pertence a outro usuário. Inicie novamente com /iniciar_tcc.', flags: MessageFlags.Ephemeral });
+      }
+      pendingTccProjects.delete(interaction.customId);
+      const pageCount = Number(interaction.values[0]);
+      if (![10, 15, 20, 25, 30, 40, 50, 60].includes(pageCount)) {
+        return interaction.reply({ content: 'Quantidade de páginas inválida. Inicie novamente com /iniciar_tcc.', flags: MessageFlags.Ephemeral });
+      }
+      const project = { ...pending.project, pageCount: String(pageCount) };
+      const totalLabel = `iniciar_tcc_${interaction.user.id}_${Date.now()}`;
+      console.time(totalLabel);
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await processTccProject(interaction, project, totalLabel);
+      } catch (error) {
+        console.error(`❌ [${totalLabel}] Falha ao iniciar TCC:`, describeError(error), error);
+        await interaction.editReply({ content: '❌ Não consegui concluir a geração do TCC. Confira os registros e tente novamente.', embeds: [], files: [] }).catch(() => {});
+      } finally {
+        console.timeEnd(totalLabel);
+      }
+      return;
+    }
     if (interaction.customId === 'auth_keep_connected_select') {
       const selectedValue = interaction.values[0];
       const enabled = selectedValue === 'sim';
@@ -672,127 +806,32 @@ client.on(Events.InteractionCreate, async interaction => {
       const allowed = await ensureAuthenticated(interaction);
       if (!allowed) return;
 
-      const nomeAluno = interaction.fields.getTextInputValue('tcc_aluno').trim();
-      const cursoInstituicao = interaction.fields.getTextInputValue('tcc_curso_instituicao').trim();
-      const orientador = interaction.fields.getTextInputValue('tcc_orientador').trim();
-      const titulo = interaction.fields.getTextInputValue('tcc_titulo').trim();
-      const folhasInput = interaction.fields.getTextInputValue('tcc_folhas').trim();
+      const project = {
+        userId: interaction.user.id,
+        username: interaction.user.username,
+        guildId: interaction.guildId,
+        studentName: interaction.fields.getTextInputValue('tcc_aluno').trim(),
+        advisorName: interaction.fields.getTextInputValue('tcc_orientador').trim(),
+        institution: interaction.fields.getTextInputValue('tcc_curso_instituicao').trim(),
+        course: interaction.fields.getTextInputValue('tcc_curso_instituicao').trim(),
+        courseAndInstitution: interaction.fields.getTextInputValue('tcc_curso_instituicao').trim(),
+        title: interaction.fields.getTextInputValue('tcc_titulo').trim(),
+        objective: interaction.fields.getTextInputValue('tcc_objetivo').trim()
+      };
 
-      const totalLabel = `iniciar_tcc_${interaction.user.id}_${Date.now()}`;
-      console.time(totalLabel);
+      const customId = `tcc_pages_${interaction.user.id}_${Date.now()}`;
+      pendingTccProjects.set(customId, { userId: interaction.user.id, project, createdAt: Date.now() });
 
-      try {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-        const project = {
-          userId: interaction.user.id,
-          username: interaction.user.username,
-          guildId: interaction.guildId,
-          studentName: nomeAluno,
-          advisorName: orientador,
-          institution: cursoInstituicao,
-          course: cursoInstituicao,
-          courseAndInstitution: cursoInstituicao,
-          title: titulo,
-          pageCount: folhasInput,
-          focusNote: folhasInput
-        };
-
-        let saved = { id: 'novo' };
-        try {
-          saved = await tccProjects.saveProject(project);
-        } catch (dbErr) {
-          console.error(`⚠️ [${totalLabel}] Falha ao salvar no banco, prosseguindo com arquivos:`, describeError(dbErr));
-        }
-
-        const [docxBuffer, pptxBuffer] = await Promise.all([
-          tccProjects.generateTccDocx(project),
-          tccProjects.generateTccPptx(project)
-        ]);
-
-        const rawDocx = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer);
-        const rawPptx = Buffer.isBuffer(pptxBuffer) ? pptxBuffer : Buffer.from(pptxBuffer);
-
-        Promise.allSettled([
-          stats.recordEvent({
-            userId: interaction.user.id,
-            username: interaction.user.username,
-            guildId: interaction.guildId,
-            eventType: 'tcc_started'
-          }),
-          stats.recordEvent({
-            userId: interaction.user.id,
-            username: interaction.user.username,
-            guildId: interaction.guildId,
-            eventType: 'document_generated'
-          })
-        ]).catch(error => {
-          console.error(`⚠️ [${totalLabel}] Erro nas estatísticas:`, describeError(error));
-        });
-
-        const payloadArquivos = {
-          content: `📄 <@${interaction.user.id}> — Ficheiros do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e PowerPoint:`,
-          files: [
-            new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
-            new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
-          ]
-        };
-
-        let enviado = false;
-        if (interaction.channel && typeof interaction.channel.send === 'function') {
-          try {
-            await withTimeout(interaction.channel.send(payloadArquivos), 12000, `${totalLabel}_channel_send`);
-            enviado = true;
-          } catch (channelErr) {
-            console.warn(`⚠️ [${totalLabel}] Falha no channel.send, tentando followUp:`, describeError(channelErr));
-          }
-        }
-
-        if (!enviado) {
-          await withTimeout(
-            interaction.followUp({
-              content: `📄 Ficheiros do projeto nº ${saved.id} (${nomeAluno}) — Word ABNT e PowerPoint:`,
-              files: [
-                new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
-                new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
-              ]
-            }),
-            12000,
-            `${totalLabel}_followUp_fallback`
-          );
-        }
-
-        const resumo = new EmbedBuilder()
-          .setTitle('📚 Projeto de TCC processado, Word ABNT e PowerPoint criados')
-          .setDescription(
-            `Projeto nº ${saved.id} processado com estrutura ABNT e apresentação em PowerPoint prontos para revisão.`
-          )
-          .addFields(
-            { name: 'Aluno(a)', value: nomeAluno, inline: false },
-            { name: 'Curso e Instituição', value: cursoInstituicao, inline: false },
-            { name: 'Orientador(a)', value: orientador, inline: true },
-            { name: 'Folhas / Foco', value: folhasInput || '10 folhas', inline: true },
-            { name: 'Título / Tema', value: titulo, inline: false }
-          )
-          .setColor('#5865F2');
-
-        await interaction.editReply({
-          content: '✅ Ficheiros Word (.docx) + PowerPoint (.pptx) enviados!',
-          embeds: [resumo]
-        }).catch(() => {});
-
-        console.timeEnd(totalLabel);
-        return;
-      } catch (error) {
-        console.error(`❌ [${totalLabel}] Falha ao iniciar TCC:`, describeError(error), error);
-        await interaction.editReply({
-          content: '❌ Não consegui concluir o envio dos ficheiros. Tente novamente em instantes.',
-          embeds: [],
-          files: []
-        }).catch(() => {});
-        console.timeEnd(totalLabel);
-        return;
+      // Remove etapas abandonadas após 15 minutos.
+      for (const [key, value] of pendingTccProjects.entries()) {
+        if (Date.now() - value.createdAt > 15 * 60 * 1000) pendingTccProjects.delete(key);
       }
+
+      return interaction.reply({
+        content: '📄 **Quantas páginas você deseja para o seu TCC?**\nA quantidade escolhida orientará a extensão do texto. A paginação final pode variar conforme a formatação, tabelas e referências.',
+        components: [buildTccPageCountMenu(customId)],
+        flags: MessageFlags.Ephemeral
+      });
     }
 
     if (interaction.customId === 'vincular_modal') {
@@ -1207,21 +1246,21 @@ client.on(Events.InteractionCreate, async interaction => {
       .setMaxLength(250)
       .setRequired(true);
 
-    const folhas = new TextInputBuilder()
-      .setCustomId('tcc_folhas')
-      .setLabel('Qtd. de folhas desejada (ex.: 10, 20)')
-      .setStyle(TextInputStyle.Short)
-      .setMinLength(1)
-      .setMaxLength(80)
+    const objetivo = new TextInputBuilder()
+      .setCustomId('tcc_objetivo')
+      .setLabel('Objetivo principal do projeto')
+      .setStyle(TextInputStyle.Paragraph)
+      .setMinLength(10)
+      .setMaxLength(1000)
       .setRequired(true)
-      .setPlaceholder('Ex.: 10 ou 20');
+      .setPlaceholder('Explique o que o projeto pretende investigar, analisar ou desenvolver.');
 
     modal.addComponents(
       new ActionRowBuilder().addComponents(aluno),
       new ActionRowBuilder().addComponents(cursoInstituicao),
       new ActionRowBuilder().addComponents(orientador),
       new ActionRowBuilder().addComponents(titulo),
-      new ActionRowBuilder().addComponents(folhas)
+      new ActionRowBuilder().addComponents(objetivo)
     );
 
     return interaction.showModal(modal);
