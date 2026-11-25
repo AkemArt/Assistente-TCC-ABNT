@@ -457,7 +457,7 @@ async function generateTccDocx(project) {
   }
 
   children.push(sectionHeading('RELATÓRIO DA PESQUISA'));
-  for (const linha of String(pesquisa.relatorioPesquisa || '').split('\\n').filter(Boolean)) {
+  for (const linha of String(pesquisa.relatorioPesquisa || '').split('\n').filter(Boolean)) {
     children.push(abntParagraph(linha, {
       align: AlignmentType.LEFT,
       firstLineIndent: 0,
