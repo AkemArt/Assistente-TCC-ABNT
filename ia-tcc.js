@@ -110,13 +110,14 @@ function validarEvidenciasTextuais(dados, fontes) {
       throw new Error('Foi apresentada evidência sem correspondência exata com um parágrafo e sua citação.');
     }
     const fonte = fontes.find(item => item.idFonte === evidencia.fonteId);
-    if (!fonte || !fonte.resumo) {
-      throw new Error('A fonte ' + evidencia.fonteId + ' não possui resumo verificável. Ela não pode sustentar afirmações.');
+    const textoBase = fonte && (fonte.textoCompleto || fonte.resumo);
+    if (!fonte || !textoBase) {
+      throw new Error('A fonte ' + evidencia.fonteId + ' não possui texto completo nem resumo verificável. Ela não pode sustentar afirmações.');
     }
     const trechoNormalizado = normalizarParaComparacao(evidencia.trecho);
-    const resumoNormalizado = normalizarParaComparacao(fonte.resumo);
-    if (trechoNormalizado.length < 35 || !resumoNormalizado.includes(trechoNormalizado)) {
-      throw new Error('O trecho atribuído à fonte ' + evidencia.fonteId + ' não foi localizado literalmente no resumo recuperado. A afirmação foi bloqueada.');
+    const textoNormalizado = normalizarParaComparacao(textoBase);
+    if (trechoNormalizado.length < 35 || !textoNormalizado.includes(trechoNormalizado)) {
+      throw new Error('O trecho atribuído à fonte ' + evidencia.fonteId + ' não foi localizado no texto recuperado. A afirmação foi bloqueada.');
     }
     if (evidenciasValidadas.has(chave)) {
       throw new Error('Há evidências duplicadas para a mesma afirmação e fonte.');
@@ -125,7 +126,8 @@ function validarEvidenciasTextuais(dados, fontes) {
       paragrafo: evidencia.paragrafo,
       fonteId: evidencia.fonteId,
       trecho: evidencia.trecho,
-      resumo: fonte.resumo,
+      textoFonte: textoBase.slice(0, 18000),
+      statusTextoCompleto: fonte.statusTextoCompleto || 'Somente resumo disponível',
       titulo: fonte.titulo
     });
   }
@@ -143,12 +145,13 @@ async function verificarSustentacaoSemantica(ai, evidencias) {
     indice,
     afirmacao: item.paragrafo.replace(/\\[F\\d+\\]/g, '').trim(),
     tituloDaFonte: item.titulo,
-    trechoLiteralDoResumo: item.trecho,
-    resumoDisponivel: item.resumo
+    trechoLiteralDaFonte: item.trecho,
+    textoDisponivelParaConferencia: item.textoFonte,
+    situacaoDoTexto: item.statusTextoCompleto
   }));
 
   const prompt = [
-    'Você é um avaliador metodológico rigoroso. Verifique se cada trecho literal do resumo realmente sustenta a afirmação associada.',
+    'Você é um avaliador metodológico rigoroso. Verifique se o trecho literal e o texto acadêmico disponibilizado realmente sustentam a afirmação. O material pode ser artigo integral de PDF aberto ou apenas resumo; considere a situação informada.',
     'Não considere mera coincidência de palavras como sustentação. Avalie sujeito, população/contexto, variável, direção do resultado, modalidade e limites do que foi observado.',
     'Classifique como "sustentada" somente quando o trecho e o resumo apoiarem diretamente a afirmação sem extrapolação.',
     'Use "parcial" se apoiar apenas parte da afirmação, ou "nao_sustentada" se não apoiar, contradizer ou não permitir concluir.',
@@ -257,8 +260,11 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
       'Ano: ' + (fonte.ano || 'Não informado'),
       'Periódico/fonte: ' + (fonte.revista || 'Não informado'),
       'DOI/link: ' + (fonte.doi || fonte.link || 'Não informado'),
+      'Página do artigo: ' + (fonte.urlPaginaArtigo || fonte.link || 'Não informada'),
+      'PDF em acesso aberto: ' + (fonte.pdfUrl || 'Não localizado'),
+      'Situação do texto completo: ' + (fonte.statusTextoCompleto || 'Não verificada'),
       'Conferência dos metadados: ' + (fonte.verificacaoCrossref || 'Não verificada'),
-      'Resumo: ' + (fonte.resumo || 'Resumo indisponível; não utilizar para sustentar afirmações.')
+      'Texto integral extraído (trecho disponível): ' + (fonte.textoCompleto ? fonte.textoCompleto.slice(0, 18000) : 'Não disponível. Resumo: ' + (fonte.resumo || 'Resumo indisponível; não utilizar para sustentar afirmações.'))
     ].join('\n');
   }).join('\n\n');
 
@@ -370,9 +376,11 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'Relações afirmação-fonte submetidas à auditoria semântica automatizada: ' + auditoriaEvidencias.length,
     'Extensão solicitada: aproximadamente ' + pageCount + ' páginas de conteúdo principal.',
     'Palavras nas seções principais: ' + palavrasGeradas + ' (meta aproximada: ' + palavrasEsperadas + ').',
-    'Base consultada: OpenAlex (metadados e resumos disponíveis).',
+    'Base consultada: OpenAlex (metadados, resumos e textos completos em PDF aberto quando localizados).',
+    'Textos completos extraídos: ' + fontes.filter(f => f.textoCompleto).length + ' de ' + fontes.length + '.',
+    'Fontes sem texto completo: ' + fontes.filter(f => !f.textoCompleto).map(f => f.idFonte + ' — ' + (f.statusTextoCompleto || 'indisponível')).join('; '),
     '',
-    'ATENÇÃO: a auditoria semântica é uma triagem automatizada baseada nos resumos disponíveis, não uma certificação científica nem leitura integral. Consulte os textos completos e confirme cada argumento antes da entrega acadêmica.'
+    'ATENÇÃO: a auditoria semântica é uma triagem automatizada, não uma certificação científica. Quando o texto integral não foi obtido, a análise se limita ao resumo e não equivale à leitura completa do artigo. Consulte o link da fonte e confirme cada argumento antes da entrega acadêmica.'
   ].join('\n');
 
   const titulos = [
