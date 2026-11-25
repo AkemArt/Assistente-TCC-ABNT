@@ -156,7 +156,7 @@ async function verificarSustentacaoSemantica(ai, evidencias) {
     'Retorne somente JSON válido no formato: {"avaliacoes":[{"indice":0,"status":"sustentada|parcial|nao_sustentada","justificativa":"explicação curta baseada no texto"}]}.',
     'EVIDÊNCIAS PARA AUDITORIA:',
     JSON.stringify(lote)
-  ].join('\\n');
+  ].join('\n');
 
   const response = await ai.models.generateContent({
     model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
@@ -323,7 +323,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
 
   const evidencias = validarEvidenciasTextuais(parsed, fontes);
   const fontesCitadas = validarVinculoDeEvidencias(parsed, fontes);
-  await verificarSustentacaoSemantica(ai, evidencias);
+  const auditoriaEvidencias = await verificarSustentacaoSemantica(ai, evidencias);
 
   const palavrasGeradas = contarPalavrasSecoes(parsed);
   const palavrasEsperadas = Number(pageCount) * 250;
@@ -367,11 +367,12 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'Fontes com resumo disponível: ' + fontesComResumo.length,
     'Fontes sem resumo: ' + (fontes.length - fontesComResumo.length),
     'Fontes efetivamente citadas no rascunho: ' + fontesCitadas.size,
+    'Relações afirmação-fonte submetidas à auditoria semântica automatizada: ' + auditoriaEvidencias.length,
     'Extensão solicitada: aproximadamente ' + pageCount + ' páginas de conteúdo principal.',
     'Palavras nas seções principais: ' + palavrasGeradas + ' (meta aproximada: ' + palavrasEsperadas + ').',
     'Base consultada: OpenAlex (metadados e resumos disponíveis).',
     '',
-    'ATENÇÃO: os resumos não equivalem à leitura integral dos artigos. Consulte os textos originais antes de validar cada argumento e referência.'
+    'ATENÇÃO: a auditoria semântica é uma triagem automatizada baseada nos resumos disponíveis, não uma certificação científica nem leitura integral. Consulte os textos completos e confirme cada argumento antes da entrega acadêmica.'
   ].join('\n');
 
   const titulos = [
