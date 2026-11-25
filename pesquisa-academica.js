@@ -543,10 +543,10 @@ async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjeti
         });
         if (resposta.status === 429 || resposta.status >= 500) {
           const espera = calcularEsperaRetryAfter(
-          resposta.headers.get('retry-after'),
-          [1500, 3500, 7000][tentativa],
-          10000
-        );
+            resposta.headers.get('retry-after'),
+            [1500, 3500, 7000][tentativa],
+            10000
+          );
           ultimoErroBusca = new Error('Crossref retornou HTTP ' + resposta.status + ' na busca alternativa.');
           if (tentativa < 2) {
             await aguardar(espera);
@@ -579,7 +579,7 @@ async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjeti
         tipoPublicacaoAcademicaAceito(mapeado.tipo) &&
         mapeado.pontuacaoRelevancia >= 15 &&
         mapeado.titulo && mapeado.autores.length && mapeado.ano &&
-        mapeado.doi && mapeado.link && mapeado.resumo
+        mapeado.doi && mapeado.link && (mapeado.resumo || mapeado.pdfUrl)
       ) encontrados.push(mapeado);
     }
     await aguardar(300);
