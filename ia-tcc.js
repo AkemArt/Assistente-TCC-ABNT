@@ -68,6 +68,127 @@ function validarVinculoDeEvidencias(dados, fontes) {
   return marcadoresEncontrados;
 }
 
+function normalizarParaComparacao(texto) {
+  return String(texto || '')
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\\p{L}\\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\\s+/g, ' ');
+}
+
+function validarEvidenciasTextuais(dados, fontes) {
+  if (!Array.isArray(dados.evidencias) || !dados.evidencias.length) {
+    throw new Error('A IA não forneceu trechos de evidência rastreáveis. Nenhuma afirmação acadêmica será tratada como comprovada.');
+  }
+
+  const paragrafosComCitacao = new Map();
+  const secoes = [
+    'introducao', 'problemaPesquisa', 'objetivos',
+    'fundamentacaoTeorica', 'metodologia', 'discussao', 'conclusao'
+  ];
+  for (const secao of secoes) {
+    for (const paragrafo of (dados[secao] || [])) {
+      const marcadores = String(paragrafo).match(/\\[F\\d+\\]/g) || [];
+      for (const marcador of marcadores) {
+        const chave = String(paragrafo) + '::' + marcador;
+        paragrafosComCitacao.set(chave, { paragrafo: String(paragrafo), fonteId: 'F' + Number(marcador.match(/\\d+/)[0]) });
+      }
+    }
+  }
+
+  const evidenciasValidadas = new Map();
+  for (const evidencia of dados.evidencias) {
+    if (!evidencia || typeof evidencia.paragrafo !== 'string' ||
+        typeof evidencia.fonteId !== 'string' || typeof evidencia.trecho !== 'string') {
+      throw new Error('A estrutura de evidências retornada pela IA está incompleta.');
+    }
+    const chave = evidencia.paragrafo + '::' + evidencia.fonteId;
+    if (!paragrafosComCitacao.has(chave)) {
+      throw new Error('Foi apresentada evidência sem correspondência exata com um parágrafo e sua citação.');
+    }
+    const fonte = fontes.find(item => item.idFonte === evidencia.fonteId);
+    if (!fonte || !fonte.resumo) {
+      throw new Error('A fonte ' + evidencia.fonteId + ' não possui resumo verificável. Ela não pode sustentar afirmações.');
+    }
+    const trechoNormalizado = normalizarParaComparacao(evidencia.trecho);
+    const resumoNormalizado = normalizarParaComparacao(fonte.resumo);
+    if (trechoNormalizado.length < 35 || !resumoNormalizado.includes(trechoNormalizado)) {
+      throw new Error('O trecho atribuído à fonte ' + evidencia.fonteId + ' não foi localizado literalmente no resumo recuperado. A afirmação foi bloqueada.');
+    }
+    if (evidenciasValidadas.has(chave)) {
+      throw new Error('Há evidências duplicadas para a mesma afirmação e fonte.');
+    }
+    evidenciasValidadas.set(chave, {
+      paragrafo: evidencia.paragrafo,
+      fonteId: evidencia.fonteId,
+      trecho: evidencia.trecho,
+      resumo: fonte.resumo,
+      titulo: fonte.titulo
+    });
+  }
+
+  for (const [chave] of paragrafosComCitacao) {
+    if (!evidenciasValidadas.has(chave)) {
+      throw new Error('Uma afirmação citada não possui trecho literal de apoio correspondente. A geração foi bloqueada.');
+    }
+  }
+  return [...evidenciasValidadas.values()];
+}
+
+async function verificarSustentacaoSemantica(ai, evidencias) {
+  const lote = evidencias.map((item, indice) => ({
+    indice,
+    afirmacao: item.paragrafo.replace(/\\[F\\d+\\]/g, '').trim(),
+    tituloDaFonte: item.titulo,
+    trechoLiteralDoResumo: item.trecho,
+    resumoDisponivel: item.resumo
+  }));
+
+  const prompt = [
+    'Você é um avaliador metodológico rigoroso. Verifique se cada trecho literal do resumo realmente sustenta a afirmação associada.',
+    'Não considere mera coincidência de palavras como sustentação. Avalie sujeito, população/contexto, variável, direção do resultado, modalidade e limites do que foi observado.',
+    'Classifique como "sustentada" somente quando o trecho e o resumo apoiarem diretamente a afirmação sem extrapolação.',
+    'Use "parcial" se apoiar apenas parte da afirmação, ou "nao_sustentada" se não apoiar, contradizer ou não permitir concluir.',
+    'Não complete lacunas com conhecimento externo. Na dúvida, use "parcial".',
+    'Retorne somente JSON válido no formato: {"avaliacoes":[{"indice":0,"status":"sustentada|parcial|nao_sustentada","justificativa":"explicação curta baseada no texto"}]}.',
+    'EVIDÊNCIAS PARA AUDITORIA:',
+    JSON.stringify(lote)
+  ].join('\\n');
+
+  const response = await ai.models.generateContent({
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      temperature: 0
+    }
+  });
+
+  let resultado;
+  try {
+    resultado = JSON.parse(limparJson(response && response.text));
+  } catch {
+    throw new Error('Não foi possível validar semanticamente a relação entre as afirmações e os estudos. A geração foi interrompida por segurança.');
+  }
+  if (!resultado || !Array.isArray(resultado.avaliacoes) ||
+      resultado.avaliacoes.length !== evidencias.length) {
+    throw new Error('A auditoria de evidências retornou uma avaliação incompleta. Nenhum documento será liberado.');
+  }
+
+  const porIndice = new Map(resultado.avaliacoes.map(item => [item.indice, item]));
+  for (let i = 0; i < evidencias.length; i += 1) {
+    const avaliacao = porIndice.get(i);
+    if (!avaliacao || avaliacao.status !== 'sustentada') {
+      const status = avaliacao && avaliacao.status || 'sem avaliação';
+      throw new Error('Afirmação não comprovada pela fonte ' + evidencias[i].fonteId +
+        ' (resultado da auditoria: ' + status + '). Revise a afirmação ou encontre um estudo que a sustente. Nenhum texto será apresentado como fundamentado sem essa confirmação.');
+    }
+  }
+  return resultado.avaliacoes;
+}
+
 function validarSecoes(dados) {
   const obrigatorias = [
     'introducao',
@@ -78,18 +199,24 @@ function validarSecoes(dados) {
     'discussao',
     'conclusao',
     'limitacoes',
-    'verificacoes'
+    'verificacoes',
+    'evidencias'
   ];
   if (!dados || typeof dados !== 'object' || Array.isArray(dados)) return false;
   const chaves = Object.keys(dados);
   if (chaves.length !== obrigatorias.length || !obrigatorias.every(chave => chaves.includes(chave))) return false;
-  return obrigatorias.every(chave =>
-    Array.isArray(dados[chave]) &&
-    dados[chave].length > 0 &&
-    dados[chave].every(paragrafo =>
+  return obrigatorias.every(chave => {
+    if (!Array.isArray(dados[chave]) || !dados[chave].length) return false;
+    if (chave === 'evidencias') {
+      return dados[chave].every(item =>
+        item && typeof item.paragrafo === 'string' &&
+        typeof item.fonteId === 'string' && typeof item.trecho === 'string'
+      );
+    }
+    return dados[chave].every(paragrafo =>
       typeof paragrafo === 'string' && paragrafo.trim().length >= 20
-    )
-  );
+    );
+  });
 }
 
 function contarPalavrasSecoes(secoes) {
@@ -170,8 +297,12 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     ' "discussao": ["parágrafos de síntese crítica e comparação das fontes"],',
     ' "conclusao": ["parágrafos coerentes com o objetivo, as fontes e as limitações, sem inventar resultados"],',
     ' "limitacoes": ["limitações concretas das fontes recuperadas"],',
-    ' "verificacoes": ["itens que o estudante deve conferir nos textos originais"]',
-    '}'
+    ' "verificacoes": ["itens que o estudante deve conferir nos textos originais"],',
+    ' "evidencias": [{"paragrafo":"copie exatamente um parágrafo citado, incluindo seu marcador [F1]","fonteId":"F1","trecho":"copie literalmente um trecho contínuo do resumo da fonte, sem alterar palavras"}]',
+    '}',
+    '12A. Para CADA parágrafo que contenha [F#], inclua um objeto em evidencias para CADA fonte citada nele. O campo paragrafo deve ser a cópia integral e exata do parágrafo; fonteId deve ser o identificador citado; trecho deve ser uma passagem contínua, copiada literalmente do resumo daquela fonte.',
+    '12B. O trecho literal precisa apoiar diretamente a afirmação do parágrafo. Não escolha uma frase apenas por conter palavras parecidas. Se não houver trecho que sustente a afirmação, reescreva-a como limitação/pergunta em aberto, sem citação afirmativa.',
+    '12C. Não use uma fonte para sustentar afirmação sobre população, método, efeito, resultado ou contexto diferente daquele descrito no resumo.'
   ].join('\n');
 
   const response = await ai.models.generateContent({
@@ -189,7 +320,9 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     throw new Error('A IA retornou uma estrutura incompleta. Tente novamente; nenhum texto genérico será usado como substituto.');
   }
 
+  const evidencias = validarEvidenciasTextuais(parsed, fontes);
   const fontesCitadas = validarVinculoDeEvidencias(parsed, fontes);
+  await verificarSustentacaoSemantica(ai, evidencias);
 
   const palavrasGeradas = contarPalavrasSecoes(parsed);
   const palavrasEsperadas = Number(pageCount) * 250;
@@ -205,6 +338,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
 
   const secoes = {};
   for (const chave of Object.keys(parsed)) {
+    if (chave === 'evidencias') continue;
     secoes[chave] = parsed[chave].map(paragrafo => substituirMarcadores(paragrafo, fontes));
   }
 
