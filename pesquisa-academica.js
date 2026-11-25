@@ -240,9 +240,8 @@ function calcularEsperaRetryAfter(valor, fallbackMs, limiteMs = 10000) {
   return fallbackMs;
 }
 
-// A OpenAlex permite consultas básicas sem chave. A chave gratuita aumenta a
-// cota disponível e é recomendada para uso contínuo. Quando configurada, é enviada
-// no cabeçalho Authorization para não aparecer em logs.
+// A OpenAlex exige chave de API desde fevereiro de 2026. Sem chave, a pesquisa
+// usa o Crossref; com chave, o token vai no cabeçalho Authorization.
 function chaveOpenAlex() {
   return String(process.env.OPENALEX_API_KEY || '').trim();
 }
@@ -252,18 +251,13 @@ function emailContato() {
 }
 
 function montarCabecalhosOpenAlex(chave) {
-  const email = emailContato();
-  const emailValido = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  const identificacao = 'Assistente-TCC-ABNT/1.3 (academic research assistant' +
-    (emailValido ? '; mailto:' + email : '') + ')';
   const cabecalhos = {
     Accept: 'application/json',
-    'User-Agent': identificacao
+    'User-Agent': 'Assistente-TCC-ABNT/1.3 (academic research assistant)'
   };
   if (chave) cabecalhos.Authorization = 'Bearer ' + chave;
   return cabecalhos;
 }
-
 let avisouSemChaveOpenAlex = false;
 
 async function consultarOpenAlex(consulta, quantidade) {
@@ -274,9 +268,12 @@ async function consultarOpenAlex(consulta, quantidade) {
   }
 
   const chaveApi = chaveOpenAlex();
-  if (!chaveApi && !avisouSemChaveOpenAlex) {
-    avisouSemChaveOpenAlex = true;
-    console.warn('ℹ️ OPENALEX_API_KEY não configurada. A pesquisa seguirá com a cota pública básica; configure uma chave gratuita se houver HTTP 429 recorrente.');
+  if (!chaveApi) {
+    if (!avisouSemChaveOpenAlex) {
+      avisouSemChaveOpenAlex = true;
+      console.warn('ℹ️ OPENALEX_API_KEY não configurada. OpenAlex exige chave de API; usando Crossref como fonte alternativa.');
+    }
+    throw new Error('OPENALEX_API_KEY não configurada; busca encaminhada para o Crossref.');
   }
 
   const params = new URLSearchParams({
@@ -284,10 +281,6 @@ async function consultarOpenAlex(consulta, quantidade) {
     'per-page': String(quantidade),
     sort: 'relevance_score:desc'
   });
-  const email = emailContato();
-  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    params.set('mailto', email);
-  }
   const url = BASE_URL + '?' + params.toString();
   let ultimoErro;
 
