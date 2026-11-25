@@ -179,8 +179,12 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
   }
 
   const referencias = fontes
-    .filter((fonte, indice) => fontesCitadas.has(indice + 1))
+    .filter(fonte => fontesCitadas.has(fonte.idFonte))
     .map(formatarReferenciaABNT);
+
+  if (!referencias.length) {
+    throw new Error('Nenhuma referência pôde ser vinculada às citações do texto. A geração foi interrompida.');
+  }
 
   const relatorio = [
     'RELATÓRIO DE PESQUISA ACADÊMICA',
