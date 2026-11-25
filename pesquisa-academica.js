@@ -122,12 +122,14 @@ async function obterTextoCompleto(fonte) {
       .replace(/\n{3,}/g, '\n\n')
       .trim()
       .slice(0, MAX_FULLTEXT_CHARS);
+    const urlFinalPdf = resposta.url || url;
     if (texto.length < 1000) {
       return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF sem texto extraível suficiente (possível documento digitalizado)' };
     }
     return {
       ...fonte,
       textoCompleto: texto,
+      pdfUrlVerificado: urlFinalPdf,
       statusTextoCompleto: 'Texto extraído de PDF em acesso aberto',
       paginasTextoCompleto: Number(resultado.total) || null
     };
