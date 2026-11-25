@@ -515,6 +515,8 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'Fontes efetivamente citadas no rascunho: ' + fontesCitadas.size,
     'Relações afirmação-fonte submetidas à auditoria semântica automatizada: ' + auditoriaEvidencias.length,
     'A matriz de rastreabilidade abaixo registra o parágrafo, o trecho literal localizado, o artigo consultado, o status da auditoria e os links para conferência pelo orientador.',
+    'MATRIZ DE RASTREABILIDADE DAS AFIRMAÇÕES',
+    matrizRastreabilidade,
     'Extensão solicitada: aproximadamente ' + pageCount + ' páginas de conteúdo principal.',
     'Palavras nas seções principais: ' + palavrasGeradas + ' (meta aproximada: ' + palavrasEsperadas + ').',
     'Base consultada: OpenAlex (metadados, resumos e textos completos em PDF aberto quando localizados).',
@@ -544,8 +546,6 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
   }
   partes.push('REFERÊNCIAS PRELIMINARES');
   partes.push(referencias.join('\n\n') || 'Nenhuma fonte foi citada no texto. Revise a fundamentação antes de utilizar este rascunho.');
-  partes.push('MATRIZ DE RASTREABILIDADE DAS AFIRMAÇÕES');
-  partes.push(matrizRastreabilidade || 'Nenhuma afirmação foi submetida à auditoria.');
   partes.push(relatorio);
 
   return {
