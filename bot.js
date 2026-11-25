@@ -71,6 +71,20 @@ function withTimeout(promise, ms, label) {
   });
 }
 
+async function safeProgress(interaction, content, label) {
+  try {
+    await withTimeout(
+      interaction.editReply({ content }),
+      8000,
+      `${label}_discord_progress`
+    );
+    return true;
+  } catch (error) {
+    console.warn(`⚠️ [${label}] Não foi possível atualizar a mensagem de progresso; o processamento continuará:`, describeError(error));
+    return false;
+  }
+}
+
 function buildTccPageCountMenu(customId) {
   const select = new StringSelectMenuBuilder()
     .setCustomId(customId)
@@ -90,9 +104,7 @@ function buildTccPageCountMenu(customId) {
 
 async function processTccProject(interaction, project, totalLabel) {
   console.log(`📥 [${totalLabel}] Seleção de páginas recebida: ${project.pageCount}. Iniciando processamento.`);
-  await interaction.editReply({
-    content: '⏳ Recebi sua escolha de ' + project.pageCount + ' páginas. Estou registrando o projeto e iniciando a pesquisa acadêmica. Vou atualizar esta mensagem durante o processo.'
-  });
+  console.log(`🧭 [${totalLabel}] Iniciando salvamento sem aguardar atualização visual do Discord.`);
 
   let saved = { id: 'novo' };
   try {
@@ -111,10 +123,12 @@ async function processTccProject(interaction, project, totalLabel) {
     throw new Error('Não foi possível salvar seu projeto no banco de dados. Nenhum documento será apresentado como concluído. Tente novamente mais tarde.');
   }
 
-  // Informa ao usuário que a etapa demorada está em andamento, em vez de deixar a interação aparentemente parada.
-  await interaction.editReply({
-    content: '🔎 Projeto registrado. Estou pesquisando artigos científicos e conferindo DOI, título, autoria, ano e relação das fontes com seu tema e objetivo. Essa etapa pode levar alguns minutos.'
-  });
+  // Atualização visual limitada a 8s: falha do Discord não pode bloquear a pesquisa.
+  await safeProgress(
+    interaction,
+    '🔎 Projeto registrado. Estou pesquisando artigos científicos e conferindo DOI, título, autoria, ano e relação das fontes com seu tema e objetivo. Essa etapa pode levar alguns minutos.',
+    totalLabel
+  );
 
   // Uma única pesquisa e uma única redação servem de base aos dois documentos.
   console.log(`🔎 [${totalLabel}] Iniciando pesquisa OpenAlex/Crossref e geração acadêmica.`);
