@@ -391,6 +391,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
       'PDF em acesso aberto: ' + (fonte.pdfUrlVerificado || fonte.pdfUrl || 'Não localizado'),
       'Situação do texto completo: ' + (fonte.statusTextoCompleto || 'Não verificada'),
       'Conferência dos metadados: ' + (fonte.verificacaoCrossref || 'Não verificada'),
+      'Limite da conferência: Crossref confirma correspondência de metadados, não qualidade científica, revisão por pares nem sustentação de afirmações.',
       'Trechos relevantes do texto integral: ' + (fonte.textoCompleto ? selecionarTrechosRelevantes(fonte.textoCompleto, tema, objetivo) : 'Texto completo não disponível. Resumo recuperado: ' + (fonte.resumo || 'Resumo indisponível; não utilizar para sustentar afirmações.'))
     ].join('\n');
   }).join('\n\n');
@@ -414,7 +415,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '3. Nunca escreva nomes de pesquisadores famosos, teorias, estatísticas, resultados ou citações textuais que não estejam comprovados nos dados das fontes fornecidas.',
     '4. Não cite uma fonte sem resumo ou texto integral como evidência de conteúdo. Ela pode aparecer somente como referência localizada, sinalizando que o conteúdo precisa ser consultado.',
     '5. Não atribua ao artigo resultados que não estejam descritos no material efetivamente disponibilizado. Quando só houver resumo, limite as afirmações ao resumo e não diga que leu o texto completo.',
-    '6. Não invente citações diretas, páginas, DOI, autores, datas ou títulos.',
+    '6. Não invente citações diretas, páginas, DOI, autores, datas ou títulos. Não classifique uma fonte como revisada por pares sem comprovação específica.',
     '7. Faça síntese crítica: aproxime e contraste achados quando o texto integral ou os resumos efetivamente disponibilizados permitirem; não faça uma lista mecânica de artigos.',
     '8. Desenvolva o raciocínio a partir do recorte real do tema. Explique conceitos específicos e relações entre variáveis somente quando houver base nas fontes.',
     '9. Não invente metodologia já executada. Apresente uma proposta metodológica compatível com o objetivo e sinalize o que o estudante precisa decidir.',
@@ -533,6 +534,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'Extensão solicitada: aproximadamente ' + pageCount + ' páginas de conteúdo principal.',
     'Palavras nas seções principais: ' + palavrasGeradas + ' (meta aproximada: ' + palavrasEsperadas + ').',
     'Base consultada: OpenAlex (metadados, resumos e textos completos em PDF aberto quando localizados).',
+    'Verificação Crossref: conferência de DOI, título, autoria e ano; não certifica qualidade científica nem revisão por pares.',
     'Textos completos extraídos e analisados: ' + fontes.filter(f => f.textoCompleto).length + ' de ' + fontes.length + '.',
     'Fontes analisadas somente pelo resumo: ' + fontes.filter(f => !f.textoCompleto && f.resumo).length + '.',
     'Situação individual das fontes: ' + fontes.map(f => f.idFonte + ' — ' + (f.textoCompleto ? 'texto integral extraído' : f.resumo ? 'somente resumo disponível' : 'sem conteúdo para análise') + ' (' + (f.statusTextoCompleto || 'PDF não consultado') + ')').join('; '),
