@@ -11,20 +11,6 @@ const {
 } = require('docx');
 const PptxGenJS = require('pptxgenjs');
 
-let pesquisaAcademica = null;
-try {
-  pesquisaAcademica = require('./pesquisa-academica');
-} catch (_) {
-  pesquisaAcademica = null;
-}
-
-let GoogleGenAI = null;
-try {
-  ({ GoogleGenAI } = require('@google/genai'));
-} catch (_) {
-  GoogleGenAI = null;
-}
-
 async function initTccProjects() {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL não configurado.');
@@ -152,83 +138,6 @@ async function saveProject(project) {
 
   const res = await db.query(sql, params);
   return res.rows[0] || { id: 'novo' };
-}
-
-function reconstructAbstract(invertedIndex) {
-  if (!invertedIndex || typeof invertedIndex !== 'object') return '';
-  const pairs = [];
-  for (const [word, positions] of Object.entries(invertedIndex)) {
-    if (Array.isArray(positions)) {
-      for (const pos of positions) {
-        pairs.push([pos, word]);
-      }
-    }
-  }
-  pairs.sort((a, b) => a[0] - b[0]);
-  return pairs.map(p => p[1]).join(' ').trim();
-}
-
-async function fetchRealArticles(project) {
-  const queryText = `${project.title} ${project.courseAndInstitution || project.course || ''}`.trim();
-
-  if (pesquisaAcademica) {
-    const fn =
-      pesquisaAcademica.buscarArtigos ||
-      pesquisaAcademica.pesquisarArtigos ||
-      pesquisaAcademica.buscarTrabalhos ||
-      pesquisaAcademica.pesquisar;
-    if (typeof fn === 'function') {
-      try {
-        const res = await fn({ tema: project.title, curso: project.course || project.courseAndInstitution || '', limite: 6 });
-        const list = Array.isArray(res) ? res : (res?.artigos || res?.fontes || res?.results || []);
-        if (list.length > 0) {
-          return list.slice(0, 6).map(item => ({
-            title: item.title || item.titulo || 'Artigo científico',
-            authors: Array.isArray(item.authors || item.autores)
-              ? (item.authors || item.autores).map(a => (typeof a === 'string' ? a : a.name)).filter(Boolean)
-              : [item.author || item.autor].filter(Boolean),
-            year: item.year || item.ano || item.publication_year || 's.d.',
-            venue: item.venue || item.journal || item.revista || 'Periódico científico',
-            doiOrUrl: item.doi || item.url || item.link || '',
-            abstract: item.abstract || item.resumo || ''
-          }));
-        }
-      } catch (err) {
-        console.warn('⚠️ Falha no módulo pesquisa-academica, tentando OpenAlex direto:', err?.message || err);
-      }
-    }
-  }
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
-    const url = `https://api.openalex.org/works?search=${encodeURIComponent(queryText)}&per-page=6`;
-    const resp = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!resp.ok) return [];
-
-    const data = await resp.json();
-    const works = Array.isArray(data?.results) ? data.results : [];
-    return works.map(w => {
-      const authors = Array.isArray(w.authorships)
-        ? w.authorships.map(a => a?.author?.display_name).filter(Boolean).slice(0, 4)
-        : [];
-      const abstract = reconstructAbstract(w.abstract_inverted_index);
-      const venue = w.primary_location?.source?.display_name || 'Base OpenAlex';
-      const doiOrUrl = w.doi || w.primary_location?.landing_page_url || '';
-      return {
-        title: w.title || 'Trabalho acadêmico',
-        authors,
-        year: w.publication_year || 's.d.',
-        venue,
-        doiOrUrl,
-        abstract: abstract.slice(0, 500)
-      };
-    });
-  } catch (err) {
-    console.warn('⚠️ Não foi possível consultar a OpenAlex:', err?.message || err);
-    return [];
-  }
 }
 
 function getThemePalette(project) {
