@@ -158,17 +158,6 @@ async function processTccProject(interaction, project, totalLabel) {
     throw new Error('A geração terminou sem produzir os dois arquivos. O envio foi cancelado para evitar anexos vazios.');
   }
 
-  await Promise.allSettled([
-    stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'tcc_started' }),
-    stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'document_generated' })
-  ]);
-
-  await safeProgress(
-    interaction,
-    '📤 Os documentos foram gerados e validados. Estou entregando os arquivos na sua resposta privada.',
-    totalLabel
-  );
-
   const criarAnexos = () => [
     new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
     new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
