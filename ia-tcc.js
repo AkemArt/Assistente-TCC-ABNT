@@ -90,7 +90,8 @@ function formatarCitacao(fonte, todasFontes = []) {
 
 function substituirMarcadores(texto, fontes) {
   return String(texto || '').replace(/\[F(\d+)\]/g, (marcador, numero) => {
-    const fonte = fontes[Number(numero) - 1];
+    const idFonte = 'F' + Number(numero);
+    const fonte = fontes.find(item => item.idFonte === idFonte);
     return fonte ? formatarCitacao(fonte, fontes) : '[MARCADOR DE FONTE INVÁLIDO]';
   });
 }
@@ -463,10 +464,14 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     );
   }
 
+  const fontesCitadasOrdenadas = aplicarSufixosAno(
+    fontes.filter(fonte => fontesCitadas.has(fonte.idFonte))
+  );
+
   const secoes = {};
   for (const chave of Object.keys(parsed)) {
     if (chave === 'evidencias') continue;
-    secoes[chave] = parsed[chave].map(paragrafo => substituirMarcadores(paragrafo, fontes));
+    secoes[chave] = parsed[chave].map(paragrafo => substituirMarcadores(paragrafo, fontesCitadasOrdenadas));
   }
 
   const marcadores = JSON.stringify(parsed).match(/\[F\d+\]/g) || [];
@@ -478,9 +483,6 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     }
   }
 
-  const fontesCitadasOrdenadas = aplicarSufixosAno(
-    fontes.filter(fonte => fontesCitadas.has(fonte.idFonte))
-  );
   const referencias = fontesCitadasOrdenadas.map(formatarReferenciaABNT);
 
   if (!referencias.length) {
@@ -492,9 +494,9 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     const auditoria = auditoriaEvidencias.find(item => item.indice === indice);
     return [
       'AFIRMAÇÃO ' + (indice + 1),
-      'Trecho do TCC: ' + substituirMarcadores(evidencia.paragrafo, fontes),
+      'Trecho do TCC: ' + substituirMarcadores(evidencia.paragrafo, fontesCitadasOrdenadas),
       'Artigo: ' + (fonte && fonte.titulo || evidencia.titulo || 'Título não identificado'),
-      'Referência autor-data: ' + (fonte ? formatarCitacao(fonte, fontes) : 'Não identificada'),
+      'Referência autor-data: ' + (fonte ? formatarCitacao(fonte, fontesCitadasOrdenadas) : 'Não identificada'),
       'Trecho literal localizado na fonte: “' + evidencia.trecho + '”',
       'Material analisado: ' + String(evidencia.statusTextoCompleto || 'Situação não informada'),
       'Resultado da auditoria semântica: ' + String(auditoria && auditoria.status || 'Sem resultado'),
@@ -571,5 +573,6 @@ module.exports = {
   validarEvidenciasTextuais,
   validarSecoes,
   contarPalavrasSecoes,
-  verificarSustentacaoSemantica
+  verificarSustentacaoSemantica,
+  substituirMarcadores
 };
