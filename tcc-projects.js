@@ -46,6 +46,12 @@ async function initTccProjects() {
     );
   `);
 
+  // Migração aditiva e segura: registra o objetivo sem apagar dados existentes.
+  await db.query(`
+    ALTER TABLE tcc_projects
+    ADD COLUMN IF NOT EXISTS objective TEXT NOT NULL DEFAULT '';
+  `);
+
   console.log('📚 Tabela de projetos de TCC (tcc_projects) verificada.');
 }
 
