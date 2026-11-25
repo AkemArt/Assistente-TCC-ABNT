@@ -233,7 +233,10 @@ function validarEvidenciasTextuais(dados, fontes) {
     if (quantidadePalavrasTrecho > 25) {
       throw new Error('O trecho literal da fonte excede o limite de 25 palavras. Solicite um excerto mais curto e mantenha o link do artigo para conferência.');
     }
-    if (trechoNormalizado.length < 35 || !textoNormalizado.includes(trechoNormalizado)) {
+    if (quantidadePalavrasTrecho < 3 || trechoNormalizado.length < 15) {
+      throw new Error('O trecho literal é curto demais para identificar a evidência. Use uma passagem contínua de 3 a 25 palavras.');
+    }
+    if (!textoNormalizado.includes(trechoNormalizado)) {
       throw new Error('O trecho atribuído à fonte ' + evidencia.fonteId + ' não foi localizado no texto recuperado. A afirmação foi bloqueada.');
     }
     if (evidenciasValidadas.has(chave)) {
