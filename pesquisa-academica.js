@@ -649,7 +649,7 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
     .filter(item =>
       tipoPublicacaoAcademicaAceito(item.tipo) &&
       item.pontuacaoRelevancia >= 15 &&
-      item.titulo && item.autores.length && item.ano && item.doi && item.link && item.resumo
+      item.titulo && item.autores.length && item.ano && item.doi && item.link && (item.resumo || item.pdfUrl)
     )
     .sort((a, b) => b.pontuacaoRelevancia - a.pontuacaoRelevancia)
     .slice(0, Math.min(quantidade * 2, 20));
