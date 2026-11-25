@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node bot.js",
-    "dev": "node bot.js"
+    "dev": "node bot.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20.16.0"
