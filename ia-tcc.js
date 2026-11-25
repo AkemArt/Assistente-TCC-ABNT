@@ -496,7 +496,12 @@ async function gerarConsultasBusca(ai, tema, objetivo) {
 function validarCitacoesConsagradas(lista, urlsGroundingPermitidas = null) {
   const anoAtual = new Date().getFullYear();
   const permitidas = Array.isArray(urlsGroundingPermitidas)
-    ? new Set(urlsGroundingPermitidas.map(url => String(url || '').trim()).filter(Boolean))
+    ? new Map(urlsGroundingPermitidas.map(fonte => {
+        if (fonte && typeof fonte === 'object') {
+          return [String(fonte.url || '').trim(), String(fonte.titulo || '').trim()];
+        }
+        return [String(fonte || '').trim(), ''];
+      }).filter(([url]) => Boolean(url)))
     : null;
   const vistas = new Set();
   const validas = [];
@@ -518,7 +523,10 @@ function validarCitacoesConsagradas(lista, urlsGroundingPermitidas = null) {
         !parsed.username && !parsed.password;
     } catch { /* URL inválida */ }
     if (!autor || !sobrenome || !obra || relacao.length < 15 || !tituloFonte) continue;
-    if (!urlSegura || (permitidas && !permitidas.has(urlFonte))) continue;
+    if (!urlSegura || (permitidas && (
+      !permitidas.has(urlFonte) ||
+      (permitidas.get(urlFonte) && permitidas.get(urlFonte) !== tituloFonte)
+    ))) continue;
     if (palavras < 4 || palavras > 40) continue;
     if (!Number.isInteger(ano) || ano < 1500 || ano > anoAtual) continue;
     if (item.confirmadaNaBusca !== true) continue;
@@ -585,8 +593,10 @@ async function gerarCitacoesConsagradas(ai, { tema, objetivo }) {
       return url.protocol === 'https:' && Boolean(url.hostname) && !url.username && !url.password;
     } catch { return false; }
   });
-  const urlsPermitidas = [...new Set(fontesGrounding.map(fonte => fonte.url))];
-  const citacoes = validarCitacoesConsagradas(lista, urlsPermitidas);
+  const fontesPermitidas = [...new Map(
+    fontesGrounding.map(fonte => [fonte.url, fonte])
+  ).values()];
+  const citacoes = validarCitacoesConsagradas(lista, fontesPermitidas);
   const fontesBusca = [...new Set(fontesGrounding.map(fonte => fonte.titulo + ' — ' + fonte.url))].slice(0, 8);
   if (lista.length && !citacoes.length) {
     console.warn('⚠️ Citações de autores descartadas: nenhuma associou a frase a uma URL HTTPS efetivamente retornada pela busca.');
