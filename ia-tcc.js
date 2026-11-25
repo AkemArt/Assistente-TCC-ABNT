@@ -140,7 +140,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '',
     'TEMA: ' + tema,
     'OBJETIVO INFORMADO: ' + (objetivo || 'Ainda não informado; não invente objetivo específico.'),
-    'EXTENSÃO SOLICITADA: aproximadamente ' + pageCount + ' páginas de conteúdo principal. Produza como meta cerca de ' + (pageCount * 220) + ' palavras nas seções principais. A paginação real varia com a diagramação, elementos pré-textuais e referências; não prometa número exato de páginas.',
+    'EXTENSÃO SOLICITADA: aproximadamente ' + pageCount + ' páginas de conteúdo principal. Produza como meta cerca de ' + (pageCount * 250) + ' palavras nas seções principais. A paginação real varia com a diagramação, elementos pré-textuais e referências; não prometa número exato de páginas.',
     '',
     'FONTES REAIS RECUPERADAS NA OPENALEX:',
     fontesText,
@@ -192,8 +192,8 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
   const fontesCitadas = validarVinculoDeEvidencias(parsed, fontes);
 
   const palavrasGeradas = contarPalavrasSecoes(parsed);
-  const palavrasEsperadas = Number(pageCount) * 220;
-  const minimoAceitavel = Math.ceil(palavrasEsperadas * 0.65);
+  const palavrasEsperadas = Number(pageCount) * 250;
+  const minimoAceitavel = Math.ceil(palavrasEsperadas * 0.8);
   if (palavrasGeradas < minimoAceitavel) {
     throw new Error(
       'O texto gerado ficou abaixo da extensão mínima: ' +
