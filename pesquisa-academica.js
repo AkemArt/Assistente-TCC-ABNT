@@ -1,4 +1,78 @@
 const BASE_URL = 'https://api.openalex.org/works';
+const MAX_PDF_BYTES = 12 * 1024 * 1024;
+const MAX_FULLTEXT_CHARS = 120000;
+
+let pdfParser;
+function obterParserPdf() {
+  if (!pdfParser) {
+    try {
+      pdfParser = require('pdf-parse');
+    } catch {
+      throw new Error('O leitor de PDF não está instalado. Execute npm install antes de pesquisar textos completos.');
+    }
+  }
+  return pdfParser;
+}
+
+function extrairTextoXml(xml) {
+  return String(xml || '')
+    .replace(/<\\/(?:p|head|div|ab|item|formula|fig|table|row|cell)>/gi, '\\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\\d+);/g, (_, num) => String.fromCodePoint(Number(num)))
+    .replace(/\\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_FULLTEXT_CHARS);
+}
+
+async function obterTextoCompleto(fonte) {
+  const url = fonte.pdfUrl;
+  if (!url || !/^https:\\/\\//i.test(url)) {
+    return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF aberto não localizado' };
+  }
+
+  try {
+    const resposta = await fetch(url, {
+      headers: { Accept: 'application/pdf,application/octet-stream;q=0.9' },
+      signal: AbortSignal.timeout(25000),
+      redirect: 'follow'
+    });
+    if (!resposta.ok) {
+      return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF indisponível (HTTP ' + resposta.status + ')' };
+    }
+    const tipo = String(resposta.headers.get('content-type') || '').toLowerCase();
+    const tamanho = Number(resposta.headers.get('content-length') || 0);
+    if (tamanho > MAX_PDF_BYTES || (!tipo.includes('pdf') && !tipo.includes('octet-stream'))) {
+      return { ...fonte, textoCompleto: null, statusTextoCompleto: 'Formato ou tamanho do arquivo não permitido' };
+    }
+    const buffer = Buffer.from(await resposta.arrayBuffer());
+    if (buffer.length > MAX_PDF_BYTES || buffer.length < 5 || buffer.subarray(0, 5).toString() !== '%PDF-') {
+      return { ...fonte, textoCompleto: null, statusTextoCompleto: 'O endereço não retornou um PDF válido ou excedeu o limite de tamanho' };
+    }
+    const resultado = await obterParserPdf()(buffer);
+    const texto = String(resultado.text || '').replace(/\\s+/g, ' ').trim().slice(0, MAX_FULLTEXT_CHARS);
+    if (texto.length < 1000) {
+      return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF sem texto extraível suficiente (possível documento digitalizado)' };
+    }
+    return {
+      ...fonte,
+      textoCompleto: texto,
+      statusTextoCompleto: 'Texto extraído de PDF em acesso aberto',
+      paginasTextoCompleto: Number(resultado.numpages) || null
+    };
+  } catch (error) {
+    return {
+      ...fonte,
+      textoCompleto: null,
+      statusTextoCompleto: 'Não foi possível extrair o PDF: ' + String(error.message || 'erro').slice(0, 140)
+    };
+  }
+}
 
 const STOPWORDS = new Set([
   'para', 'como', 'sobre', 'entre', 'mais', 'menos', 'uma', 'umas', 'uns',
@@ -82,13 +156,21 @@ function mapearTrabalho(trabalho, termos) {
   const titulo = trabalho.title || 'Título não informado';
   const relevancia = pontuarRelevancia(termos, titulo, resumo || '');
   const doi = trabalho.doi || null;
-  const link = doi || (trabalho.primary_location && trabalho.primary_location.landing_page_url) || null;
-  const revista = trabalho.primary_location && trabalho.primary_location.source
-    ? trabalho.primary_location.source.display_name
-    : null;
+  const melhorLocalAberto = trabalho.best_oa_location || null;
+  const localPrincipal = trabalho.primary_location || null;
+  const link = (doi && /^https?:\\/\\//i.test(doi) ? doi : (doi ? 'https://doi.org/' + doi.replace(/^doi:/i, '') : null)) ||
+    (melhorLocalAberto && melhorLocalAberto.landing_page_url) ||
+    (localPrincipal && localPrincipal.landing_page_url) || null;
+  const pdfUrl = melhorLocalAberto && melhorLocalAberto.pdf_url ||
+    (trabalho.locations || []).find(local => local && local.is_oa && local.pdf_url)?.pdf_url || null;
+  const revista = (localPrincipal && localPrincipal.source && localPrincipal.source.display_name) ||
+    (melhorLocalAberto && melhorLocalAberto.source && melhorLocalAberto.source.display_name) || null;
 
   return {
     openAlexId: trabalho.id || null,
+    versaoAcessoAberto: melhorLocalAberto && melhorLocalAberto.version || null,
+    urlPaginaArtigo: (melhorLocalAberto && melhorLocalAberto.landing_page_url) || link,
+    pdfUrl,
     titulo,
     autores,
     ano: trabalho.publication_year || null,
@@ -212,11 +294,17 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
       temResumo: Boolean(item.resumo && item.resumo.trim())
     }));
 
+  const fontesComTexto = await Promise.all(selecionados.map(obterTextoCompleto));
+  const fontesFinal = fontesComTexto.map(fonte => ({
+    ...fonte,
+    link: fonte.urlPaginaArtigo || fonte.link
+  }));
+
   if (!selecionados.length) {
     throw new Error('Foram encontrados registros, mas nenhum pôde ser confirmado no Crossref com DOI, título, autoria e ano compatíveis. Nenhuma referência será inventada. Tente ampliar ou ajustar o tema, ou revise as fontes manualmente.');
   }
 
-  return selecionados;
+  return fontesFinal;
 }
 
 function formatarReferenciaABNT(fonte) {
@@ -233,8 +321,10 @@ function formatarReferenciaABNT(fonte) {
   if (fonte.volume) dados.push('v. ' + fonte.volume);
   if (fonte.numero) dados.push('n. ' + fonte.numero);
   if (fonte.paginaInicial) dados.push('p. ' + fonte.paginaInicial + (fonte.paginaFinal ? '-' + fonte.paginaFinal : ''));
-  if (fonte.doi) dados.push('DOI: ' + fonte.doi);
-  else if (fonte.link) dados.push('Disponível em: ' + fonte.link);
+  if (fonte.doi) dados.push('DOI: ' + fonte.doi.replace(/^https?:\\/\\/doi\\.org\\//i, ''));
+  const linkArtigo = fonte.urlPaginaArtigo || fonte.link;
+  if (linkArtigo) dados.push('Disponível em: ' + linkArtigo);
+  if (fonte.pdfUrl) dados.push('Texto completo em PDF: ' + fonte.pdfUrl);
   return dados.filter(Boolean).join('. ') + '.';
 }
 
