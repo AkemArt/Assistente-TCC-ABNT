@@ -270,7 +270,7 @@ async function generateTccDocx(project, pesquisa = null) {
       firstLineIndent: 0,
       spaceAfter: 100
     }));
-    const fonte = (resultadoPesquisa.fontes || []).find(item =>
+    const fonte = (resultadoPesquisa.fontesCitadas || resultadoPesquisa.fontes || []).find(item =>
       item.titulo && referencia.includes(item.titulo)
     );
     const urlArtigo = fonte && (fonte.urlPaginaArtigo || fonte.link ||
@@ -375,7 +375,7 @@ async function generateTccPptx(project, pesquisa = null) {
     });
   }
 
-  for (const fonte of (pesquisa?.fontes || [])) {
+  for (const fonte of (pesquisa?.fontesCitadas || pesquisa?.fontes || [])) {
     const slide = pptx.addSlide();
     slide.background = { color: 'F8FAFC' };
     slide.addText('Referência bibliográfica e acesso ao estudo', {
