@@ -102,7 +102,7 @@ async function fetchPdfComRedirecionamentosSeguros(urlInicial) {
       urlAtual = new URL(destino, urlAtual).toString();
       continue;
     }
-    return resposta;
+    return { resposta, urlFinal: urlAtual };
   }
   throw new Error('Não foi possível acessar o PDF com segurança.');
 }
@@ -114,7 +114,7 @@ async function obterTextoCompleto(fonte) {
   }
 
   try {
-    const resposta = await fetchPdfComRedirecionamentosSeguros(url);
+    const { resposta, urlFinal } = await fetchPdfComRedirecionamentosSeguros(url);
     if (!resposta.ok) {
       return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF indisponível (HTTP ' + resposta.status + ')' };
     }
@@ -142,7 +142,7 @@ async function obterTextoCompleto(fonte) {
       .replace(/\n{3,}/g, '\n\n')
       .trim()
       .slice(0, MAX_FULLTEXT_CHARS);
-    const urlFinalPdf = resposta.url || url;
+    const urlFinalPdf = urlFinal;
     if (texto.length < 1000) {
       return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF sem texto extraível suficiente (possível documento digitalizado)' };
     }
