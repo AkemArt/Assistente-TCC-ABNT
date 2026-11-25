@@ -12,7 +12,29 @@ function erroGeminiTransitorio(error) {
     /HTTP\s*(429|500|502|503|504)|RESOURCE_EXHAUSTED|UNAVAILABLE|temporarily unavailable|overloaded/i.test(mensagem);
 }
 
-async function gerarConteudoGeminiComRetry(ai, request, etapa) {
+// O modelo padrão antigo (gemini-2.5-flash) está sendo desligado pelo Google e já responde 404
+// em muitas contas. A lista abaixo é tentada em ordem; defina GEMINI_MODEL no Render
+// (aceita vários, separados por vírgula) para escolher o modelo que sua chave realmente enxerga.
+const MODELOS_GEMINI_PADRAO = ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
+let modeloGeminiAtivo = null;
+
+function listarModelosGemini() {
+  const configurados = String(process.env.GEMINI_MODEL || '')
+    .split(',').map(m => m.trim()).filter(Boolean);
+  const base = configurados.length ? configurados : MODELOS_GEMINI_PADRAO;
+  return modeloGeminiAtivo && base.includes(modeloGeminiAtivo)
+    ? [modeloGeminiAtivo, ...base.filter(m => m !== modeloGeminiAtivo)]
+    : base;
+}
+
+function erroModeloIndisponivel(error) {
+  const status = String(error?.status || error?.code || '').toUpperCase();
+  const mensagem = String(error?.message || '');
+  return status === '404' || status === 'NOT_FOUND' ||
+    /\b404\b|NOT_FOUND|no longer available|is not found|not supported for generateContent/i.test(mensagem);
+}
+
+async function gerarConteudoGeminiComModelo(ai, request, etapa) {
   const esperas = [1500, 4000];
   for (let tentativa = 0; tentativa <= esperas.length; tentativa += 1) {
     try {
@@ -33,6 +55,24 @@ async function gerarConteudoGeminiComRetry(ai, request, etapa) {
     }
   }
   throw new Error('Não foi possível concluir a etapa ' + etapa + ' com o Gemini.');
+}
+
+async function gerarConteudoGeminiComRetry(ai, request, etapa) {
+  const { model: _ignorado, ...restante } = request;
+  const modelos = listarModelosGemini();
+  let ultimoErro;
+  for (const modelo of modelos) {
+    try {
+      const resposta = await gerarConteudoGeminiComModelo(ai, { ...restante, model: modelo }, etapa);
+      modeloGeminiAtivo = modelo;
+      return resposta;
+    } catch (error) {
+      ultimoErro = error;
+      if (!erroModeloIndisponivel(error)) throw error;
+      console.warn('⚠️ Modelo Gemini "' + modelo + '" indisponível em ' + etapa + '; tentando o próximo da lista.');
+    }
+  }
+  throw ultimoErro || new Error('Nenhum modelo Gemini disponível na etapa ' + etapa + '.');
 }
 
 function ordenarFontesBibliografia(fontes) {
@@ -319,7 +359,6 @@ async function verificarSustentacaoSemantica(ai, evidencias) {
   ].join('\n');
 
   const response = await gerarConteudoGeminiComRetry(ai, {
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
@@ -413,7 +452,118 @@ function contarPalavrasSecoes(secoes) {
   }, 0);
 }
 
-async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
+function contarPalavrasTexto(texto) {
+  return (String(texto || '').trim().match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu) || []).length;
+}
+
+function extrairArrayJson(texto) {
+  const limpo = limparJson(texto);
+  const inicio = limpo.indexOf('[');
+  const fim = limpo.lastIndexOf(']');
+  if (inicio < 0 || fim <= inicio) throw new Error('Resposta sem lista JSON.');
+  return limpo.slice(inicio, fim + 1);
+}
+
+// Passo 1: a IA transforma o tema em consultas curtas e específicas (PT e EN), que são
+// o que as bases científicas entendem. Em caso de falha, a busca segue com o tema original.
+async function gerarConsultasBusca(ai, tema, objetivo) {
+  const prompt = [
+    'Você é bibliotecário acadêmico especialista em estratégias de busca em bases científicas (OpenAlex, Crossref, SciELO).',
+    'TEMA DO TCC: ' + tema,
+    'OBJETIVO: ' + (objetivo || 'não informado'),
+    'Gere 4 consultas de busca, curtas (2 a 5 palavras-chave cada), ESPECÍFICAS para este tema e objetivo, usando a terminologia técnica que os artigos realmente utilizam. Alterne inglês e português, começando pelo inglês (inglês, português, inglês, português).',
+    'Sem aspas, operadores booleanos ou pontuação. Nada genérico que serviria para qualquer assunto.',
+    'Responda somente JSON: {"consultas":["...","...","...","..."]}'
+  ].join('\n');
+  try {
+    const resposta = await gerarConteudoGeminiComRetry(ai, {
+      contents: prompt,
+      config: { responseMimeType: 'application/json', temperature: 0.2 }
+    }, 'palavras-chave de busca');
+    const dados = JSON.parse(limparJson(resposta && resposta.text));
+    const consultas = (Array.isArray(dados.consultas) ? dados.consultas : [])
+      .map(c => String(c || '').replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 80))
+      .filter(c => c.length >= 3);
+    return [...new Set(consultas)].slice(0, 4);
+  } catch (error) {
+    console.warn('⚠️ Não foi possível gerar palavras-chave com a IA; usando o tema original:', String(error?.message || error).slice(0, 200));
+    return [];
+  }
+}
+
+// Citações de autores consagrados: só entram as que a IA confirmou por busca na web e que
+// passam nesta validação. Mesmo assim ficam em seção própria, marcadas para conferência na obra.
+function validarCitacoesConsagradas(lista) {
+  const anoAtual = new Date().getFullYear();
+  const vistas = new Set();
+  const validas = [];
+  for (const item of Array.isArray(lista) ? lista : []) {
+    if (!item || typeof item !== 'object') continue;
+    const autor = String(item.autor || '').trim();
+    const sobrenome = String(item.sobrenome || '').trim();
+    const citacao = String(item.citacao || '').replace(/^[“"']+|[”"']+$/g, '').trim();
+    const obra = String(item.obra || '').trim();
+    const relacao = String(item.relacao || '').trim();
+    const ano = Number(item.ano);
+    const palavras = contarPalavrasTexto(citacao);
+    if (!autor || !sobrenome || !obra || relacao.length < 15) continue;
+    if (palavras < 4 || palavras > 40) continue;
+    if (!Number.isInteger(ano) || ano < 1500 || ano > anoAtual) continue;
+    if (item.confirmadaNaBusca !== true) continue;
+    const chave = normalizarParaComparacao(autor + ' ' + citacao);
+    if (vistas.has(chave)) continue;
+    vistas.add(chave);
+    validas.push({ autor, sobrenome, citacao, obra, ano, relacao, traducaoLivre: item.traducaoLivre === true });
+  }
+  return validas.slice(0, 5);
+}
+
+function formatarCitacaoConsagrada(c) {
+  const sufixo = c.traducaoLivre ? ', tradução nossa' : '';
+  return [
+    '“' + c.citacao + '” (' + c.sobrenome.toLocaleUpperCase('pt-BR') + ', ' + c.ano + sufixo + ').',
+    'Obra de referência: ' + c.autor + ', ' + c.obra + ' (' + c.ano + '). ' + c.relacao
+  ];
+}
+
+async function gerarCitacoesConsagradas(ai, { tema, objetivo }) {
+  const prompt = [
+    'Você é pesquisador de citações acadêmicas.',
+    'TEMA DO TCC: ' + tema,
+    'OBJETIVO: ' + (objetivo || 'não informado'),
+    '',
+    'Usando a busca na web, localize de 3 a 5 citações curtas de pessoas amplamente reconhecidas (cientistas, economistas, filósofos, escritores, educadores, líderes) que dialoguem diretamente com este tema e com a área do conhecimento dele. Escolha autores da área do tema (ex.: finanças e economia → pensadores da economia; meio ambiente → cientistas e pensadores da ecologia; educação → educadores).',
+    'REGRAS:',
+    '1. Inclua somente citações cuja autoria e origem (obra, discurso ou entrevista) você CONFIRMOU em fontes encontradas na busca. Descarte "frases famosas" sem origem comprovada: muitas são apócrifas.',
+    '2. Máximo de 35 palavras por citação. Se o original não for em português, traduza e marque traducaoLivre como true.',
+    '3. "ano" é o ano da obra ou discurso de origem (número inteiro).',
+    '4. Não invente. Se não confirmar 3, devolva menos; lista vazia é aceitável.',
+    '5. "relacao" é uma frase explicando como a ideia se liga a este tema.',
+    'Responda SOMENTE com um array JSON, sem markdown: [{"autor":"Nome completo","sobrenome":"Sobrenome para a citação ABNT","citacao":"...","traducaoLivre":false,"obra":"título da obra ou discurso","ano":1962,"relacao":"...","confirmadaNaBusca":true}]'
+  ].join('\n');
+
+  const resposta = await gerarConteudoGeminiComRetry(ai, {
+    contents: prompt,
+    config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
+  }, 'citações de autores consagrados');
+
+  const trechos = resposta?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  if (!trechos.length) {
+    console.warn('⚠️ Citações de autores descartadas: a busca na web não retornou fontes para confirmá-las.');
+    return { citacoes: [], fontesBusca: [] };
+  }
+  let lista;
+  try {
+    lista = JSON.parse(extrairArrayJson(resposta.text));
+  } catch {
+    console.warn('⚠️ Citações de autores descartadas: resposta fora do formato esperado.');
+    return { citacoes: [], fontesBusca: [] };
+  }
+  const fontesBusca = [...new Set(trechos.map(t => t?.web?.title).filter(Boolean))].slice(0, 8);
+  return { citacoes: validarCitacoesConsagradas(lista), fontesBusca };
+}
+
+async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10, citacoesConsagradas = [], fontesBuscaCitacoes = [] }) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY ou GOOGLE_API_KEY não configurada. A geração acadêmica foi interrompida para não produzir texto genérico sem IA.');
@@ -463,7 +613,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '2. Quando uma afirmação for sustentada por uma fonte, inclua o marcador exato [F1], [F2] etc. no fim da frase. O programa converterá esses marcadores em citações autor-data.',
     '2A. A extensão é requisito: distribua o volume entre as seções principais e aproxime-se da meta de palavras informada. Aprofunde definições, delimitações, relações entre conceitos, comparação crítica e justificativas metodológicas, sem repetir ideias.',
     '2B. Cada parágrafo de introdução, fundamentação teórica, discussão e conclusão deve conter pelo menos um marcador [F#] ligado a uma fonte que sustente suas afirmações. Não deixe afirmações factuais dessas seções sem referência.',
-    '3. Nunca escreva nomes de pesquisadores famosos, teorias, estatísticas, resultados ou citações textuais que não estejam comprovados nos dados das fontes fornecidas.',
+    '3. Nunca escreva nomes de pesquisadores famosos, teorias, estatísticas, resultados ou citações textuais que não estejam comprovados nos dados das fontes fornecidas. Citações de autores consagrados são tratadas em uma seção própria, fora deste JSON; não as inclua nos parágrafos.',
     '4. Não cite uma fonte sem resumo ou texto integral como evidência de conteúdo. Ela pode aparecer somente como referência localizada, sinalizando que o conteúdo precisa ser consultado.',
     '5. Não atribua ao artigo resultados que não estejam descritos no material efetivamente disponibilizado. Quando só houver resumo, limite as afirmações ao resumo e não diga que leu o texto completo.',
     '6. Não invente citações diretas, páginas, DOI, autores, datas ou títulos. Não classifique uma fonte como revisada por pares sem comprovação específica.',
@@ -495,7 +645,6 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
   ].join('\n');
 
   const response = await gerarConteudoGeminiComRetry(ai, {
-    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
@@ -548,6 +697,15 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     }
   }
 
+  const citacoesValidas = Array.isArray(citacoesConsagradas) ? citacoesConsagradas : [];
+  if (citacoesValidas.length) {
+    secoes.citacoesConsagradas = citacoesValidas.flatMap(formatarCitacaoConsagrada);
+    secoes.verificacoes = [
+      ...secoes.verificacoes,
+      'Citações de autores consagrados (seção 4.1): localize cada obra ou discurso original e confirme a frase, a edição e a página. A ABNT NBR 10520:2023 exige a página nas citações diretas, e esses dados não foram recuperados. Complete a referência da obra (local, editora, edição) na lista de referências e confira as traduções.'
+    ];
+  }
+
   const referencias = fontesCitadasOrdenadas.map(formatarReferenciaABNT);
 
   if (!referencias.length) {
@@ -575,6 +733,11 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'RELATÓRIO DE PESQUISA ACADÊMICA',
     'Tema pesquisado: ' + tema,
     'Fontes recuperadas: ' + fontes.length,
+    ...(citacoesValidas.length ? [
+      'Citações de autores consagrados incluídas: ' + citacoesValidas.length + ' (localizadas e confirmadas por busca na web' +
+        (fontesBuscaCitacoes.length ? ': ' + fontesBuscaCitacoes.join(', ') : '') +
+        '; a conferência na obra original, com página, continua pendente).'
+    ] : []),
     'Fontes com resumo disponível: ' + fontesComResumo.length,
     'Fontes sem resumo: ' + (fontes.length - fontesComResumo.length),
     'Fontes efetivamente citadas no rascunho: ' + fontesCitadas.size,
@@ -599,6 +762,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     ['PROBLEMA DE PESQUISA', secoes.problemaPesquisa],
     ['OBJETIVOS', secoes.objetivos],
     ['FUNDAMENTAÇÃO TEÓRICA', secoes.fundamentacaoTeorica],
+    ...(secoes.citacoesConsagradas ? [['CITAÇÕES DE AUTORES CONSAGRADOS', secoes.citacoesConsagradas]] : []),
     ['METODOLOGIA', secoes.metodologia],
     ['DISCUSSÃO', secoes.discussao],
     ['CONCLUSÃO', secoes.conclusao],
@@ -625,8 +789,27 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
 }
 
 async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount = 10 }) {
-  const fontes = await pesquisarTrabalhos(tema, limite, objetivo);
-  return gerarTextoTCC({ tema, objetivo, fontes, pageCount });
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY ou GOOGLE_API_KEY não configurada. A geração acadêmica foi interrompida para não produzir texto genérico sem IA.');
+  }
+  if (!tema || !String(tema).trim()) throw new Error('Informe o tema do TCC.');
+  const ai = new GoogleGenAI({ apiKey });
+
+  // 1) A IA entende o tema e gera consultas específicas. 2) Em paralelo à busca dos artigos,
+  // ela localiza citações de autores consagrados. 3) A redação usa apenas as fontes reais.
+  const consultas = await gerarConsultasBusca(ai, tema, objetivo);
+  const citacoesPromise = gerarCitacoesConsagradas(ai, { tema, objetivo }).catch(error => {
+    console.warn('⚠️ Citações de autores indisponíveis; o texto seguirá sem elas:', String(error?.message || error).slice(0, 200));
+    return { citacoes: [], fontesBusca: [] };
+  });
+  const fontes = await pesquisarTrabalhos(tema, limite, objetivo, { consultas });
+  const { citacoes, fontesBusca } = await citacoesPromise;
+  return gerarTextoTCC({
+    tema, objetivo, fontes, pageCount,
+    citacoesConsagradas: citacoes,
+    fontesBuscaCitacoes: fontesBusca
+  });
 }
 
 module.exports = {
@@ -640,5 +823,11 @@ module.exports = {
   validarSecoes,
   contarPalavrasSecoes,
   verificarSustentacaoSemantica,
-  substituirMarcadores
+  substituirMarcadores,
+  gerarConsultasBusca,
+  gerarCitacoesConsagradas,
+  validarCitacoesConsagradas,
+  formatarCitacaoConsagrada,
+  listarModelosGemini,
+  erroModeloIndisponivel
 };

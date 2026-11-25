@@ -572,7 +572,9 @@ client.on(Events.InteractionCreate, async interaction => {
       } catch (error) {
         console.error(`❌ [${totalLabel}] Falha ao iniciar TCC:`, describeError(error), error);
         const erroTexto = String(error?.message || '');
-        const mensagem = /429|limite de requisições|OpenAlex/i.test(erroTexto)
+        const mensagem = /GEMINI_API_KEY|GOOGLE_API_KEY/i.test(erroTexto)
+          ? '⚠️ A inteligência artificial do bot não está configurada no servidor. Avise o administrador. Nenhum documento foi gerado.'
+          : /429|limite de requisições|OpenAlex|Crossref/i.test(erroTexto)
           ? '⚠️ O serviço de pesquisa acadêmica está temporariamente limitando consultas. Seu projeto foi registrado, mas nenhum documento foi gerado. Aguarde alguns minutos antes de tentar novamente.'
           : /Timeout/.test(erroTexto)
             ? '⏱️ A pesquisa ou geração excedeu o tempo limite. Seu projeto pode ter sido registrado, mas nenhum documento foi concluído. Tente novamente mais tarde.'
