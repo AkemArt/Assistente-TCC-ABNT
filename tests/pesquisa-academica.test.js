@@ -664,6 +664,8 @@ test('citações de autores só passam com origem confirmada, tamanho e ano vál
     citacao: 'Quanto mais claramente pudermos focalizar nossa atenção nas maravilhas e realidades do universo, menos gosto teremos pela destruição.',
     obra: 'Silent Spring', ano: 1962,
     relacao: 'Relaciona a atenção à natureza com a preservação ambiental.',
+    tituloFonte: 'Fonte primária sobre Silent Spring',
+    urlFonte: 'https://example.org/silent-spring',
     confirmadaNaBusca: true, traducaoLivre: true
   };
   const validas = validarCitacoesConsagradas([
@@ -691,4 +693,20 @@ test('troca de modelo Gemini: reconhece 404 e respeita GEMINI_MODEL com vários 
   } finally {
     if (original === undefined) delete process.env.GEMINI_MODEL; else process.env.GEMINI_MODEL = original;
   }
+});
+
+test('citações consagradas só são aceitas quando a URL pertence ao grounding da busca', () => {
+  const base = {
+    autor: 'Rachel Carson', sobrenome: 'Carson',
+    citacao: 'Uma frase de teste suficientemente longa para validação',
+    obra: 'Silent Spring', ano: 1962,
+    relacao: 'Relaciona a obra ao debate ambiental e à preservação.',
+    tituloFonte: 'Fonte primária',
+    urlFonte: 'https://example.org/fonte',
+    confirmadaNaBusca: true
+  };
+  assert.equal(validarCitacoesConsagradas([base], ['https://example.org/fonte']).length, 1);
+  assert.equal(validarCitacoesConsagradas([base], ['https://outro.example.org/fonte']).length, 0);
+  assert.equal(validarCitacoesConsagradas([{ ...base, urlFonte: 'http://example.org/fonte' }]).length, 0);
+  assert.equal(validarCitacoesConsagradas([{ ...base, urlFonte: 'javascript:alert(1)' }]).length, 0);
 });
