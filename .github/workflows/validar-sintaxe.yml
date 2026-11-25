@@ -1,0 +1,26 @@
+name: Validar sintaxe Node.js
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - melhoria-pesquisa-academica
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verificar sintaxe dos arquivos
+        run: |
+          node --check bot.js
+          node --check ia-tcc.js
+          node --check pesquisa-academica.js
+          node --check tcc-projects.js
