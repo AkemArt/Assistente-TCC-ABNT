@@ -399,7 +399,7 @@ async function generateTccDocx(project) {
   const institutionCourse = project.courseAndInstitution || project.course || 'CURSO E INSTITUIÇÃO';
   const pesquisa = await gerarRascunhoComPesquisa({
     tema: project.title,
-    objetivo: project.objective || project.problem || project.focusNote || '',
+    objetivo: project.objective || project.problem || '',
     limite: 8
   });
 
@@ -423,7 +423,7 @@ async function generateTccDocx(project) {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 1400 },
-      children: [new TextRun({ text: 'CARAGUATATUBA — ' + new Date().getFullYear(), font: 'Times New Roman', size: 24, bold: true })]
+      children: [new TextRun({ text: String(project.city || project.location || '[CIDADE]').toUpperCase() + ' — ' + (project.year || new Date().getFullYear()), font: 'Times New Roman', size: 24, bold: true })]
     }),
     new Paragraph({ children: [new PageBreak()] })
   ];
