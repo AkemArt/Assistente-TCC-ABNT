@@ -42,9 +42,11 @@ function pontuarRelevancia(termos, titulo, resumo) {
   return Math.round(tituloScore * 65 + resumoScore * 35);
 }
 
-function montarConsultas(tema) {
+function montarConsultas(tema, objetivo = '') {
   const termos = extrairTermos(tema);
+  const termosObjetivo = extrairTermos(objetivo).slice(0, 5);
   const consultas = [String(tema).trim()];
+  if (termosObjetivo.length) consultas.push(String(tema).trim() + ' ' + termosObjetivo.join(' '));
   if (termos.length >= 3) {
     consultas.push(termos.slice(0, Math.ceil(termos.length / 2)).join(' '));
     consultas.push(termos.slice(-Math.ceil(termos.length / 2)).join(' '));
@@ -107,7 +109,7 @@ function mapearTrabalho(trabalho, termos) {
   };
 }
 
-async function pesquisarTrabalhos(tema, limite = 8) {
+async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
   if (!tema || !String(tema).trim()) {
     throw new Error('Informe um tema para pesquisar.');
   }
@@ -116,7 +118,8 @@ async function pesquisarTrabalhos(tema, limite = 8) {
   const termos = extrairTermos(tema);
   if (!termos.length) throw new Error('Não foi possível identificar palavras-chave no tema informado.');
 
-  const consultas = montarConsultas(tema);
+  const consultas = montarConsultas(tema, objetivo);
+  const termosDeRelevancia = [...new Set([...termos, ...extrairTermos(objetivo).slice(0, 5)])];
   const resultados = await Promise.allSettled(
     consultas.map(consulta => consultarOpenAlex(consulta, quantidade))
   );
@@ -135,7 +138,7 @@ async function pesquisarTrabalhos(tema, limite = 8) {
 
   const unicos = new Map();
   for (const trabalho of trabalhosBrutos) {
-    const mapeado = mapearTrabalho(trabalho, termos);
+    const mapeado = mapearTrabalho(trabalho, termosDeRelevancia);
     const chave = mapeado.doi || mapeado.openAlexId || mapeado.titulo.toLowerCase();
     if (!unicos.has(chave) || mapeado.pontuacaoRelevancia > unicos.get(chave).pontuacaoRelevancia) {
       unicos.set(chave, mapeado);
