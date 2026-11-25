@@ -18,9 +18,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Instalar dependências
+        run: npm install --ignore-scripts --no-audit --no-fund
       - name: Verificar sintaxe dos arquivos
         run: |
           node --check bot.js
           node --check ia-tcc.js
           node --check pesquisa-academica.js
           node --check tcc-projects.js
+      - name: Verificar bibliotecas de PDF, Word e PowerPoint
+        run: |
+          node -e "const { PDFParse } = require('pdf-parse'); if (typeof PDFParse !== 'function') process.exit(1)"
+          node -e "const { ExternalHyperlink } = require('docx'); if (typeof ExternalHyperlink !== 'function') process.exit(1)"
+          node -e "const PptxGenJS = require('pptxgenjs'); if (typeof PptxGenJS !== 'function') process.exit(1)"
