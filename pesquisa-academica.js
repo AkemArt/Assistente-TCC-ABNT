@@ -231,6 +231,15 @@ const CACHE_OPENALEX_TTL_MS = 10 * 60 * 1000;
 
 const aguardar = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function calcularEsperaRetryAfter(valor, fallbackMs, limiteMs = 10000) {
+  if (valor == null || String(valor).trim() === '') return fallbackMs;
+  const segundos = Number(valor);
+  if (Number.isFinite(segundos) && segundos > 0) return Math.min(segundos * 1000, limiteMs);
+  const data = Date.parse(String(valor));
+  if (Number.isFinite(data)) return Math.min(Math.max(data - Date.now(), 0), limiteMs);
+  return fallbackMs;
+}
+
 async function consultarOpenAlex(consulta, quantidade) {
   const chaveCache = consulta.trim().toLowerCase() + '::' + quantidade;
   const cache = cacheOpenAlex.get(chaveCache);
@@ -259,10 +268,11 @@ async function consultarOpenAlex(consulta, quantidade) {
       });
 
       if (resposta.status === 429 || resposta.status >= 500) {
-        const retryHeader = Number(resposta.headers.get('retry-after'));
-        const espera = Number.isFinite(retryHeader) && retryHeader > 0
-          ? Math.min(retryHeader * 1000, 8000)
-          : [1500, 3500, 7000][tentativa];
+        const espera = calcularEsperaRetryAfter(
+          resposta.headers.get('retry-after'),
+          [1500, 3500, 7000][tentativa],
+          8000
+        );
         ultimoErro = new Error('OpenAlex retornou HTTP ' + resposta.status);
         if (tentativa < 2) {
           await aguardar(espera);
@@ -373,10 +383,11 @@ async function consultarCrossrefComRetry(doiLimpo) {
         signal: AbortSignal.timeout(15000)
       });
       if (resposta.status === 429 || resposta.status >= 500) {
-        const retryHeader = Number(resposta.headers.get('retry-after'));
-        const espera = Number.isFinite(retryHeader) && retryHeader > 0
-          ? Math.min(retryHeader * 1000, 10000)
-          : [1500, 3500, 7000][tentativa];
+        const espera = calcularEsperaRetryAfter(
+          resposta.headers.get('retry-after'),
+          [1500, 3500, 7000][tentativa],
+          10000
+        );
         ultimoErro = new Error('Crossref retornou HTTP ' + resposta.status);
         if (tentativa < 2) {
           await aguardar(espera);
@@ -531,10 +542,11 @@ async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjeti
           signal: AbortSignal.timeout(25000)
         });
         if (resposta.status === 429 || resposta.status >= 500) {
-          const retryHeader = Number(resposta.headers.get('retry-after'));
-          const espera = Number.isFinite(retryHeader) && retryHeader > 0
-            ? Math.min(retryHeader * 1000, 10000)
-            : [1500, 3500, 7000][tentativa];
+          const espera = calcularEsperaRetryAfter(
+          resposta.headers.get('retry-after'),
+          [1500, 3500, 7000][tentativa],
+          10000
+        );
           ultimoErroBusca = new Error('Crossref retornou HTTP ' + resposta.status + ' na busca alternativa.');
           if (tentativa < 2) {
             await aguardar(espera);
