@@ -49,6 +49,7 @@ test('formata referência com DOI e links recuperados sem inventar dados', () =>
     titulo: 'Estudo demonstrativo',
     revista: 'Revista de Exemplo',
     ano: 2024,
+    anoReferencia: '2024a',
     volume: '2',
     numero: '1',
     paginaInicial: '10',
@@ -60,6 +61,7 @@ test('formata referência com DOI e links recuperados sem inventar dados', () =>
 
   assert.match(referencia, /LOVELACE, ADA/);
   assert.match(referencia, /Estudo demonstrativo/);
+  assert.match(referencia, /2024a/);
   assert.match(referencia, /DOI: 10\.1234\/exemplo/);
   assert.match(referencia, /https:\/\/example\.org\/article/);
   assert.match(referencia, /https:\/\/example\.org\/article\.pdf/);
