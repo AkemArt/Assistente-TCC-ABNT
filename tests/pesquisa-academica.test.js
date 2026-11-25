@@ -427,3 +427,23 @@ test('substitui marcadores pelo ID da fonte e usa somente as obras citadas nos s
   assert.equal(substituirMarcadores('[F2]', fontesCitadas), '(Lovelace, 2024b)');
   assert.equal(substituirMarcadores('[F2]', [fonteCitata]), '(Lovelace, 2024)');
 });
+
+test('limita trechos literais de artigos a 25 palavras e mantém o link para leitura integral', () => {
+  const trecho = 'one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour twentyfive twentysix';
+  const fonte = {
+    idFonte: 'F1',
+    titulo: 'Estudo',
+    resumo: 'O resumo contém este trecho: ' + trecho
+  };
+  const paragrafo = 'A afirmação acadêmica é sustentada pelo estudo [F1].';
+  const dados = {
+    introducao: [paragrafo],
+    problemaPesquisa: [], objetivos: [], fundamentacaoTeorica: [],
+    metodologia: [], discussao: [], conclusao: [],
+    evidencias: [{ paragrafo, fonteId: 'F1', trecho }]
+  };
+  assert.throws(
+    () => validarEvidenciasTextuais(dados, [fonte]),
+    /excede o limite de 25 palavras/
+  );
+});
