@@ -100,12 +100,21 @@ async function processTccProject(interaction, project, totalLabel) {
     throw new Error('Não foi possível salvar seu projeto no banco de dados. Nenhum documento será apresentado como concluído. Tente novamente mais tarde.');
   }
 
+  // Informa ao usuário que a etapa demorada está em andamento, em vez de deixar a interação aparentemente parada.
+  await interaction.editReply({
+    content: '🔎 Projeto registrado. Estou pesquisando artigos científicos e conferindo DOI, título, autoria, ano e relação das fontes com seu tema e objetivo. Essa etapa pode levar alguns minutos.'
+  });
+
   // Uma única pesquisa e uma única redação servem de base aos dois documentos.
   const pesquisa = await withTimeout(
     tccProjects.generateTccResearch(project),
     540000,
     `${totalLabel}_academic_research`
   );
+
+  await interaction.editReply({
+    content: '🧾 A pesquisa foi concluída e as afirmações citadas passaram pela conferência de evidências. Estou preparando o Word com a matriz de rastreabilidade e o PowerPoint com os links dos artigos.'
+  });
 
   const [docxBuffer, pptxBuffer] = await Promise.all([
     tccProjects.generateTccDocx(project, pesquisa),
@@ -119,6 +128,10 @@ async function processTccProject(interaction, project, totalLabel) {
     stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'tcc_started' }),
     stats.recordEvent({ userId: interaction.user.id, username: interaction.user.username, guildId: interaction.guildId, eventType: 'document_generated' })
   ]);
+
+  await interaction.editReply({
+    content: '📤 Os documentos foram gerados. Estou enviando os arquivos agora.'
+  });
 
   const files = [
     new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
