@@ -21,18 +21,22 @@ function ordenarFontesBibliografia(fontes) {
   });
 }
 
+function chaveAutoriaParaReferencia(fonte) {
+  return JSON.stringify((fonte.autores || []).map(nome => normalizarParaComparacao(nome)));
+}
+
 function aplicarSufixosAno(fontes) {
   const ordenadas = ordenarFontesBibliografia(fontes);
   const grupos = new Map();
   for (const fonte of ordenadas) {
-    const chaveAutores = normalizarParaComparacao((fonte.autores || []).join(' '));
+    const chaveAutores = chaveAutoriaParaReferencia(fonte);
     const chave = chaveAutores + '::' + String(fonte.ano || '');
     if (!grupos.has(chave)) grupos.set(chave, []);
     grupos.get(chave).push(fonte);
   }
 
   return ordenadas.map(fonte => {
-    const chaveAutores = normalizarParaComparacao((fonte.autores || []).join(' '));
+    const chaveAutores = chaveAutoriaParaReferencia(fonte);
     const chave = chaveAutores + '::' + String(fonte.ano || '');
     const grupo = grupos.get(chave) || [];
     const indice = grupo.findIndex(item =>
@@ -65,8 +69,7 @@ function formatarCitacao(fonte, todasFontes = []) {
 
   const mesmoAutorEAno = (todasFontes || []).filter(item =>
     String(item.ano || '') === String(fonte.ano || '') &&
-    JSON.stringify((item.autores || []).map(a => normalizarAutorParaCitacao(a)).sort()) ===
-      JSON.stringify(autores.map(a => normalizarAutorParaCitacao(a)).sort())
+    chaveAutoriaParaReferencia(item) === chaveAutoriaParaReferencia(fonte)
   );
   const ordenadas = mesmoAutorEAno.slice().sort((a, b) =>
     String(a.titulo || '').localeCompare(String(b.titulo || ''), 'pt-BR')
