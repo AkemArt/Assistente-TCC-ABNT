@@ -574,6 +574,8 @@ client.on(Events.InteractionCreate, async interaction => {
         const erroTexto = String(error?.message || '');
         const mensagem = /GEMINI_API_KEY|GOOGLE_API_KEY/i.test(erroTexto)
           ? '⚠️ A inteligência artificial do bot não está configurada no servidor. Avise o administrador. Nenhum documento foi gerado.'
+          : /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto)
+          ? '⚠️ A cota da API Gemini foi esgotada. Nenhum documento foi gerado. O administrador precisa verificar o plano e o faturamento no Google AI Studio/Google Cloud antes de uma nova tentativa.'
           : /429|limite de requisições|OpenAlex|Crossref/i.test(erroTexto)
           ? '⚠️ O serviço de pesquisa acadêmica está temporariamente limitando consultas. Seu projeto foi registrado, mas nenhum documento foi gerado. Aguarde alguns minutos antes de tentar novamente.'
           : /Timeout/.test(erroTexto)
