@@ -120,7 +120,7 @@ function titulosCorrespondem(tituloA, tituloB) {
 async function verificarNoCrossref(fonte) {
   if (!fonte.doi) return { ...fonte, verificacaoCrossref: 'Não verificado: DOI ausente' };
   try {
-    const doiLimpo = String(fonte.doi).replace(/^https?:\\/\\/(dx\\.)?doi\\.org\\//i, '');
+    const doiLimpo = String(fonte.doi).replace(/^https?:\/\/(dx\.)?doi\.org\//i, '');
     const resposta = await fetch('https://api.crossref.org/works/' + encodeURIComponent(doiLimpo), {
       headers: { Accept: 'application/json', 'User-Agent': 'Assistente-TCC-ABNT/1.1 (academic metadata verification)' },
       signal: AbortSignal.timeout(15000)
@@ -133,7 +133,7 @@ async function verificarNoCrossref(fonte) {
       return { ...fonte, verificacaoCrossref: 'Divergência de título no Crossref' };
     }
     const autoresCrossref = (registro.author || []).map(a => a.family).filter(Boolean);
-    const sobrenomesOpenAlex = (fonte.autores || []).map(nome => String(nome).trim().split(/\\s+/).pop().toLowerCase());
+    const sobrenomesOpenAlex = (fonte.autores || []).map(nome => String(nome).trim().split(/\s+/).pop().toLowerCase());
     const autoresCorrespondem = sobrenomesOpenAlex.length && autoresCrossref.length &&
       sobrenomesOpenAlex.some(nome => autoresCrossref.some(sobrenome => sobrenome.toLowerCase() === nome));
     if (!autoresCorrespondem) {
