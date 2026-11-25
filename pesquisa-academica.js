@@ -97,7 +97,11 @@ async function obterTextoCompleto(fonte) {
     } finally {
       await parser.destroy();
     }
-    const texto = String(resultado.text || '').replace(/\s+/g, ' ').trim().slice(0, MAX_FULLTEXT_CHARS);
+    const texto = String(resultado.text || '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+      .slice(0, MAX_FULLTEXT_CHARS);
     if (texto.length < 1000) {
       return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF sem texto extraível suficiente (possível documento digitalizado)' };
     }
@@ -213,7 +217,9 @@ function mapearTrabalho(trabalho, termos) {
   return {
     openAlexId: trabalho.id || null,
     versaoAcessoAberto: melhorLocalAberto && melhorLocalAberto.version || null,
-    urlPaginaArtigo: (melhorLocalAberto && melhorLocalAberto.landing_page_url) || link,
+    urlPaginaArtigo: urlHttpsPublica(melhorLocalAberto && melhorLocalAberto.landing_page_url)
+      ? melhorLocalAberto.landing_page_url
+      : link,
     pdfUrl,
     titulo,
     autores,
