@@ -252,9 +252,13 @@ function emailContato() {
 }
 
 function montarCabecalhosOpenAlex(chave) {
+  const email = emailContato();
+  const emailValido = email && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);
+  const identificacao = 'Assistente-TCC-ABNT/1.3 (academic research assistant' +
+    (emailValido ? '; mailto:' + email : '') + ')';
   const cabecalhos = {
     Accept: 'application/json',
-    'User-Agent': 'Assistente-TCC-ABNT/1.3 (academic research assistant)'
+    'User-Agent': identificacao
   };
   if (chave) cabecalhos.Authorization = 'Bearer ' + chave;
   return cabecalhos;
@@ -302,7 +306,15 @@ async function consultarOpenAlex(consulta, quantidade) {
           [1500, 3500, 7000][tentativa],
           8000
         );
-        ultimoErro = new Error('OpenAlex retornou HTTP ' + resposta.status);
+        let detalheLimite = '';
+        if (resposta.status === 429) {
+          try {
+            detalheLimite = String(await resposta.text()).replace(/\\s+/g, ' ').slice(0, 300);
+          } catch { /* corpo opcional */ }
+          console.warn('⚠️ OpenAlex HTTP 429: ' + (detalheLimite || 'detalhe não fornecido pela API'));
+        }
+        ultimoErro = new Error('OpenAlex retornou HTTP ' + resposta.status +
+          (detalheLimite ? ': ' + detalheLimite : ''));
         if (tentativa < 2) {
           await aguardar(espera);
           continue;
