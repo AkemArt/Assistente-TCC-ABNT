@@ -9,7 +9,7 @@
     "dev": "node bot.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.16.0"
   },
   "dependencies": {
     "@google/genai": "^2.31.0",
