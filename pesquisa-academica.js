@@ -357,18 +357,57 @@ function titulosCorrespondem(tituloA, tituloB) {
   return intersecao / Math.max(a.size, b.size) >= 0.8;
 }
 
+const cacheCrossref = new Map();
+const CACHE_CROSSREF_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function consultarCrossrefComRetry(doiLimpo) {
+  const cache = cacheCrossref.get(doiLimpo);
+  if (cache && Date.now() - cache.timestamp < CACHE_CROSSREF_TTL_MS) return { registro: cache.registro };
+
+  let ultimoErro;
+  for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+    try {
+      const resposta = await fetch('https://api.crossref.org/works/' + encodeURIComponent(doiLimpo), {
+        headers: { Accept: 'application/json', 'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic metadata verification)' },
+        signal: AbortSignal.timeout(15000)
+      });
+      if (resposta.status === 429 || resposta.status >= 500) {
+        const retryHeader = Number(resposta.headers.get('retry-after'));
+        const espera = Number.isFinite(retryHeader) && retryHeader > 0
+          ? Math.min(retryHeader * 1000, 10000)
+          : [1500, 3500, 7000][tentativa];
+        ultimoErro = new Error('Crossref retornou HTTP ' + resposta.status);
+        if (tentativa < 2) {
+          await aguardar(espera);
+          continue;
+        }
+        break;
+      }
+      if (!resposta.ok) return { erro: 'Crossref retornou HTTP ' + resposta.status };
+      const dados = await resposta.json();
+      const registro = dados && dados.message;
+      if (!registro) return { erro: 'Resposta do Crossref sem metadados' };
+      cacheCrossref.set(doiLimpo, { timestamp: Date.now(), registro });
+      return { registro };
+    } catch (error) {
+      ultimoErro = error;
+      if (tentativa < 2 && (error.name === 'TimeoutError' || error.name === 'AbortError' || error.cause)) {
+        await aguardar([1000, 2500, 5000][tentativa]);
+        continue;
+      }
+      break;
+    }
+  }
+  return { erro: (ultimoErro && ultimoErro.message) || 'Falha de conexão com Crossref' };
+}
+
 async function verificarNoCrossref(fonte) {
   if (!fonte.doi) return { ...fonte, verificacaoCrossref: 'Não verificado: DOI ausente' };
   try {
-    const doiLimpo = String(fonte.doi).replace(/^https?:\/\/(dx\.)?doi\.org\//i, '');
-    const resposta = await fetch('https://api.crossref.org/works/' + encodeURIComponent(doiLimpo), {
-      headers: { Accept: 'application/json', 'User-Agent': 'Assistente-TCC-ABNT/1.1 (academic metadata verification)' },
-      signal: AbortSignal.timeout(15000)
-    });
-    if (!resposta.ok) return { ...fonte, verificacaoCrossref: 'Não confirmado no Crossref' };
-    const dados = await resposta.json();
-    const registro = dados && dados.message;
-    const tituloCrossref = registro && Array.isArray(registro.title) ? registro.title[0] : '';
+    const consulta = await consultarCrossrefComRetry(normalizarDoi(fonte.doi));
+    if (!consulta.registro) return { ...fonte, verificacaoCrossref: 'Não verificado: ' + consulta.erro };
+    const registro = consulta.registro;
+    const tituloCrossref = Array.isArray(registro.title) ? registro.title[0] : '';
     if (!tituloCrossref || !titulosCorrespondem(fonte.titulo, tituloCrossref)) {
       return { ...fonte, verificacaoCrossref: 'Divergência de título no Crossref' };
     }
@@ -382,9 +421,7 @@ async function verificarNoCrossref(fonte) {
       autoresCrossref.length > 0 &&
       sobrenomesOpenAlex.length === autoresCrossref.length &&
       sobrenomesOpenAlex.every((nome, indice) => nome === autoresCrossref[indice]);
-    if (!autoresCorrespondem) {
-      return { ...fonte, verificacaoCrossref: 'Divergência de autoria no Crossref' };
-    }
+    if (!autoresCorrespondem) return { ...fonte, verificacaoCrossref: 'Divergência de autoria no Crossref' };
     const datas = [registro.published, registro['published-print'], registro['published-online'], registro.issued]
       .filter(Boolean).map(d => d['date-parts'] && d['date-parts'][0] && Number(d['date-parts'][0][0])).filter(Boolean);
     if (!datas.length || !fonte.ano || !datas.some(ano => Math.abs(ano - Number(fonte.ano)) <= 1)) {
@@ -445,7 +482,12 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
     .sort((a, b) => b.pontuacaoRelevancia - a.pontuacaoRelevancia)
     .slice(0, Math.min(quantidade * 2, 20));
 
-  const candidatosVerificados = await Promise.all(candidatos.map(verificarNoCrossref));
+  const candidatosVerificados = [];
+  // Verifica os metadados em sequência para evitar rajadas no Crossref.
+  for (let i = 0; i < candidatos.length; i += 1) {
+    candidatosVerificados.push(await verificarNoCrossref(candidatos[i]));
+    if (i < candidatos.length - 1) await aguardar(200);
+  }
   const selecionados = candidatosVerificados
     .filter(item => item.verificacaoCrossref === 'Confirmado no Crossref')
     .sort((a, b) => {
