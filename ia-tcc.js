@@ -443,7 +443,8 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'Fontes analisadas somente pelo resumo: ' + fontes.filter(f => !f.textoCompleto && f.resumo).length + '.',
     'Situação individual das fontes: ' + fontes.map(f => f.idFonte + ' — ' + (f.textoCompleto ? 'texto integral extraído' : f.resumo ? 'somente resumo disponível' : 'sem conteúdo para análise') + ' (' + (f.statusTextoCompleto || 'PDF não consultado') + ')').join('; '),
     '',
-    'ATENÇÃO: a auditoria semântica é uma triagem automatizada, não uma certificação científica. Quando o texto integral não foi obtido, a análise se limita ao resumo e não equivale à leitura completa do artigo. Consulte o link da fonte e confirme cada argumento antes da entrega acadêmica.'
+    'ATENÇÃO: a auditoria semântica é uma triagem automatizada, não uma certificação científica. Quando o texto integral não foi obtido, a análise se limita ao resumo e não equivale à leitura completa do artigo. Consulte o link da fonte e confirme cada argumento antes da entrega acadêmica.',
+    'NORMALIZAÇÃO: as referências são preliminares e utilizam somente metadados recuperados. Conferir os elementos ausentes e ajustar a apresentação conforme a ABNT NBR 6023:2025, a ABNT NBR 10520:2023 e o manual vigente da instituição.'
   ].join('\n');
 
   const titulos = [
