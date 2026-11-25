@@ -304,6 +304,10 @@ async function generateTccDocx(project, pesquisa = null) {
     }
   }
 
+  children.push(abntParagraph(
+    'Nota de normalização: estas referências são preliminares e foram montadas com os metadados recuperados. Confira os dados ausentes e revise a apresentação conforme a ABNT NBR 6023:2025, a ABNT NBR 10520:2023 e o manual vigente da instituição.',
+    { align: AlignmentType.JUSTIFIED, firstLineIndent: 0, spaceAfter: 240 }
+  ));
   children.push(sectionHeading('RELATÓRIO DA PESQUISA'));
   for (const linha of String(resultadoPesquisa.relatorioPesquisa || '').split('\n').filter(Boolean)) {
     children.push(abntParagraph(linha, {
@@ -414,6 +418,21 @@ async function generateTccPptx(project, pesquisa = null) {
       x: 0.8, y: 5.25, w: 11.7, h: 0.8, fontSize: 12, color: '475569', valign: 'top'
     });
   }
+
+  const nota = pptx.addSlide();
+  nota.background = { color: 'F8FAFC' };
+  nota.addText('Nota sobre referências e normalização', {
+    x: 0.7, y: 0.6, w: 12, h: 0.6,
+    fontSize: 23, bold: true, color: palette.primary
+  });
+  nota.addText(
+    'As referências desta apresentação são preliminares e utilizam os metadados recuperados. Confira os dados ausentes e revise a apresentação conforme a ABNT NBR 6023:2025, a ABNT NBR 10520:2023 e o manual vigente da instituição. A auditoria automatizada não substitui a leitura crítica dos artigos pelo estudante e pelo orientador.',
+    {
+      x: 0.8, y: 1.5, w: 11.7, h: 3.2,
+      fontSize: 18, color: '334155', valign: 'top',
+      breakLine: false, fit: 'shrink'
+    }
+  );
 
   return pptx.write({ outputType: 'nodebuffer' });
 }
