@@ -487,6 +487,23 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     throw new Error('Nenhuma referência pôde ser vinculada às citações do texto. A geração foi interrompida.');
   }
 
+  const matrizRastreabilidade = evidencias.map((evidencia, indice) => {
+    const fonte = fontes.find(item => item.idFonte === evidencia.fonteId);
+    const auditoria = auditoriaEvidencias.find(item => item.indice === indice);
+    return [
+      'AFIRMAÇÃO ' + (indice + 1),
+      'Trecho do TCC: ' + substituirMarcadores(evidencia.paragrafo, fontes),
+      'Artigo: ' + (fonte && fonte.titulo || evidencia.titulo || 'Título não identificado'),
+      'Referência autor-data: ' + (fonte ? formatarCitacao(fonte, fontes) : 'Não identificada'),
+      'Trecho literal localizado na fonte: “' + evidencia.trecho + '”',
+      'Material analisado: ' + String(evidencia.statusTextoCompleto || 'Situação não informada'),
+      'Resultado da auditoria semântica: ' + String(auditoria && auditoria.status || 'Sem resultado'),
+      'Justificativa da auditoria: ' + String(auditoria && auditoria.justificativa || 'Não informada'),
+      'Link do artigo: ' + String(fonte && (fonte.urlPaginaArtigo || fonte.link) || 'Não localizado'),
+      'Link do PDF: ' + String(fonte && (fonte.pdfUrlVerificado || fonte.pdfUrl) || 'Não localizado')
+    ].join('\n');
+  }).join('\n\n');
+
   const relatorio = [
     'RELATÓRIO DE PESQUISA ACADÊMICA',
     'Tema pesquisado: ' + tema,
@@ -495,6 +512,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'Fontes sem resumo: ' + (fontes.length - fontesComResumo.length),
     'Fontes efetivamente citadas no rascunho: ' + fontesCitadas.size,
     'Relações afirmação-fonte submetidas à auditoria semântica automatizada: ' + auditoriaEvidencias.length,
+    'A matriz de rastreabilidade abaixo registra o parágrafo, o trecho literal localizado, o artigo consultado, o status da auditoria e os links para conferência pelo orientador.',
     'Extensão solicitada: aproximadamente ' + pageCount + ' páginas de conteúdo principal.',
     'Palavras nas seções principais: ' + palavrasGeradas + ' (meta aproximada: ' + palavrasEsperadas + ').',
     'Base consultada: OpenAlex (metadados, resumos e textos completos em PDF aberto quando localizados).',
@@ -524,6 +542,8 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
   }
   partes.push('REFERÊNCIAS PRELIMINARES');
   partes.push(referencias.join('\n\n') || 'Nenhuma fonte foi citada no texto. Revise a fundamentação antes de utilizar este rascunho.');
+  partes.push('MATRIZ DE RASTREABILIDADE DAS AFIRMAÇÕES');
+  partes.push(matrizRastreabilidade || 'Nenhuma afirmação foi submetida à auditoria.');
   partes.push(relatorio);
 
   return {
