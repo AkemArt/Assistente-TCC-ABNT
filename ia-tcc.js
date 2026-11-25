@@ -111,6 +111,9 @@ function validarVinculoDeEvidencias(dados, fontes) {
     'introducao', 'problemaPesquisa', 'objetivos',
     'fundamentacaoTeorica', 'metodologia', 'discussao', 'conclusao'
   ];
+  const secoesQueExigemCitacao = new Set([
+    'introducao', 'fundamentacaoTeorica', 'discussao', 'conclusao'
+  ]);
 
   for (const secao of secoesTextuais) {
     const paragrafos = Array.isArray(dados[secao]) ? dados[secao] : [];
@@ -118,6 +121,10 @@ function validarVinculoDeEvidencias(dados, fontes) {
       const texto = String(paragrafo || '');
       const marcadores = texto.match(/\[F\d+\]/g) || [];
       const contemCitacaoAutorData = /\([^)]{1,100}\b(?:19|20)\d{2}[a-z]?\s*\)/i.test(texto);
+
+      if (secoesQueExigemCitacao.has(secao) && marcadores.length === 0) {
+        throw new Error('O parágrafo da seção ' + secao + ' não possui marcador de fonte. Toda afirmação acadêmica nessa seção precisa estar vinculada a um estudo recuperado.');
+      }
 
       if (contemCitacaoAutorData) {
         throw new Error(
@@ -403,6 +410,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '1. Use exclusivamente as fontes listadas para citações e afirmações atribuídas a estudos.',
     '2. Quando uma afirmação for sustentada por uma fonte, inclua o marcador exato [F1], [F2] etc. no fim da frase. O programa converterá esses marcadores em citações autor-data.',
     '2A. A extensão é requisito: distribua o volume entre as seções principais e aproxime-se da meta de palavras informada. Aprofunde definições, delimitações, relações entre conceitos, comparação crítica e justificativas metodológicas, sem repetir ideias.',
+    '2B. Cada parágrafo de introdução, fundamentação teórica, discussão e conclusão deve conter pelo menos um marcador [F#] ligado a uma fonte que sustente suas afirmações. Não deixe afirmações factuais dessas seções sem referência.',
     '3. Nunca escreva nomes de pesquisadores famosos, teorias, estatísticas, resultados ou citações textuais que não estejam comprovados nos dados das fontes fornecidas.',
     '4. Não cite uma fonte sem resumo ou texto integral como evidência de conteúdo. Ela pode aparecer somente como referência localizada, sinalizando que o conteúdo precisa ser consultado.',
     '5. Não atribua ao artigo resultados que não estejam descritos no material efetivamente disponibilizado. Quando só houver resumo, limite as afirmações ao resumo e não diga que leu o texto completo.',
@@ -410,6 +418,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '7. Faça síntese crítica: aproxime e contraste achados quando o texto integral ou os resumos efetivamente disponibilizados permitirem; não faça uma lista mecânica de artigos.',
     '8. Desenvolva o raciocínio a partir do recorte real do tema. Explique conceitos específicos e relações entre variáveis somente quando houver base nas fontes.',
     '9. Não invente metodologia já executada. Apresente uma proposta metodológica compatível com o objetivo e sinalize o que o estudante precisa decidir.',
+    '9A. O estudante informou o objetivo, mas não forneceu um problema de pesquisa separado. Apresente a pergunta de pesquisa como proposta preliminar derivada do tema e do objetivo, identificando-a expressamente como sugestão a ser validada com o orientador.',
     '10. Não use parágrafos genéricos sobre a importância da tecnologia, sociedade ou atualidade se não forem pertinentes ao tema.',
     '11. Se as fontes não forem suficientes para determinada seção, escreva isso explicitamente em limitacoes e verificacoes.',
     '12. Não crie a lista de referências. Ela será montada pelo programa com os metadados recuperados.',
