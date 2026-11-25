@@ -285,15 +285,22 @@ async function generateTccDocx(project, pesquisa = null) {
         })]
       }));
     }
-    if (fonte && fonte.pdfUrl && urlHttpsValida(fonte.pdfUrl)) {
+    const pdfConsultado = fonte && (fonte.pdfUrlVerificado || fonte.pdfUrl);
+    if (pdfConsultado && urlHttpsValida(pdfConsultado)) {
       children.push(new Paragraph({
         indent: { left: 360 },
-        spacing: { after: 180 },
+        spacing: { after: 100 },
         children: [new ExternalHyperlink({
-          link: fonte.pdfUrl,
-          children: [new TextRun({ text: 'Abrir texto completo em PDF (acesso aberto)', style: 'Hyperlink', font: 'Times New Roman', size: 20 })]
+          link: pdfConsultado,
+          children: [new TextRun({ text: fonte.textoCompleto ? 'Abrir PDF consultado (texto extraído)' : 'Tentar abrir PDF em acesso aberto', style: 'Hyperlink', font: 'Times New Roman', size: 20 })]
         })]
       }));
+    }
+    if (fonte) {
+      children.push(abntParagraph(
+        'Situação da consulta: ' + String(fonte.statusTextoCompleto || 'Texto integral não extraído; consultar página do artigo e resumo.'),
+        { align: AlignmentType.LEFT, firstLineIndent: 0, spaceAfter: 180 }
+      ));
     }
   }
 
@@ -397,8 +404,9 @@ async function generateTccPptx(project, pesquisa = null) {
         x: 0.8, y: 3.8, w: 11.7, h: 0.45, fontSize: 16
       });
     }
-    if (fonte.pdfUrl && urlHttpsValida(fonte.pdfUrl)) {
-      slide.addText([{ text: 'Abrir texto completo em PDF (acesso aberto)', options: { hyperlink: { url: fonte.pdfUrl, tooltip: 'Abrir PDF do artigo' }, color: '0563C1', underline: { color: '0563C1' } } }], {
+    const pdfConsultado = fonte.pdfUrlVerificado || fonte.pdfUrl;
+    if (pdfConsultado && urlHttpsValida(pdfConsultado)) {
+      slide.addText([{ text: fonte.textoCompleto ? 'Abrir PDF consultado (texto extraído)' : 'Tentar abrir PDF em acesso aberto', options: { hyperlink: { url: pdfConsultado, tooltip: 'Abrir PDF do artigo' }, color: '0563C1', underline: { color: '0563C1' } } }], {
         x: 0.8, y: 4.45, w: 11.7, h: 0.45, fontSize: 16
       });
     }
