@@ -71,11 +71,11 @@ function validarVinculoDeEvidencias(dados, fontes) {
 function normalizarParaComparacao(texto) {
   return String(texto || '')
     .normalize('NFD')
-    .replace(/[\\u0300-\\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^\\p{L}\\p{N}]+/gu, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
-    .replace(/\\s+/g, ' ');
+    .replace(/\s+/g, ' ');
 }
 
 function validarEvidenciasTextuais(dados, fontes) {
@@ -284,7 +284,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '2. Quando uma afirmação for sustentada por uma fonte, inclua o marcador exato [F1], [F2] etc. no fim da frase. O programa converterá esses marcadores em citações autor-data.',
     '2A. A extensão é requisito: distribua o volume entre as seções principais e aproxime-se da meta de palavras informada. Aprofunde definições, delimitações, relações entre conceitos, comparação crítica e justificativas metodológicas, sem repetir ideias.',
     '3. Nunca escreva nomes de pesquisadores famosos, teorias, estatísticas, resultados ou citações textuais que não estejam comprovados nos dados das fontes fornecidas.',
-    '4. Não cite uma fonte sem resumo como evidência de conteúdo. Ela pode aparecer somente como referência localizada, sinalizando que o conteúdo precisa ser consultado.',
+    '4. Não cite uma fonte sem resumo ou texto integral como evidência de conteúdo. Ela pode aparecer somente como referência localizada, sinalizando que o conteúdo precisa ser consultado.',
     '5. Não atribua ao artigo resultados que não estejam descritos no resumo. Não diga que leu o texto completo.',
     '6. Não invente citações diretas, páginas, DOI, autores, datas ou títulos.',
     '7. Faça síntese crítica: aproxime e contraste achados quando os resumos permitirem; não faça uma lista mecânica de artigos.',
@@ -307,9 +307,10 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     ' "verificacoes": ["itens que o estudante deve conferir nos textos originais"],',
     ' "evidencias": [{"paragrafo":"copie exatamente um parágrafo citado, incluindo seu marcador [F1]","fonteId":"F1","trecho":"copie literalmente um trecho contínuo do resumo da fonte, sem alterar palavras"}]',
     '}',
-    '12A. Para CADA parágrafo que contenha [F#], inclua um objeto em evidencias para CADA fonte citada nele. O campo paragrafo deve ser a cópia integral e exata do parágrafo; fonteId deve ser o identificador citado; trecho deve ser uma passagem contínua, copiada literalmente do resumo daquela fonte.',
+    '12A. Para CADA parágrafo que contenha [F#], inclua um objeto em evidencias para CADA fonte citada nele. O campo paragrafo deve ser a cópia integral e exata do parágrafo; fonteId deve ser o identificador citado; trecho deve ser uma passagem contínua, copiada literalmente do texto integral disponibilizado ou, se ele não existir, do resumo.',
     '12B. O trecho literal precisa apoiar diretamente a afirmação do parágrafo. Não escolha uma frase apenas por conter palavras parecidas. Se não houver trecho que sustente a afirmação, reescreva-a como limitação/pergunta em aberto, sem citação afirmativa.',
-    '12C. Não use uma fonte para sustentar afirmação sobre população, método, efeito, resultado ou contexto diferente daquele descrito no resumo.'
+    '12C. Não use uma fonte para sustentar afirmação sobre população, método, efeito, resultado ou contexto diferente daquele descrito no texto recuperado.',
+    '12D. Dê preferência ao texto integral extraído de PDF aberto. Quando só houver resumo, limite a afirmação ao que o resumo efetivamente informa e nunca sugira que o artigo completo foi lido.'
   ].join('\n');
 
   const response = await ai.models.generateContent({
