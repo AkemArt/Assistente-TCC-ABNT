@@ -132,10 +132,15 @@ async function verificarNoCrossref(fonte) {
     if (!tituloCrossref || !titulosCorrespondem(fonte.titulo, tituloCrossref)) {
       return { ...fonte, verificacaoCrossref: 'Divergência de título no Crossref' };
     }
-    const autoresCrossref = (registro.author || []).map(a => a.family).filter(Boolean);
-    const sobrenomesOpenAlex = (fonte.autores || []).map(nome => String(nome).trim().split(/\s+/).pop().toLowerCase());
-    const autoresCorrespondem = sobrenomesOpenAlex.length && autoresCrossref.length &&
-      sobrenomesOpenAlex.some(nome => autoresCrossref.some(sobrenome => sobrenome.toLowerCase() === nome));
+    const normalizarSobrenome = valor => normalizar(valor).join(' ');
+    const autoresCrossref = (registro.author || []).map(a => normalizarSobrenome(a.family || '')).filter(Boolean);
+    const sobrenomesOpenAlex = (fonte.autores || []).map(nome => {
+      const partes = normalizar(nome);
+      return partes.length ? partes[partes.length - 1] : '';
+    }).filter(Boolean);
+    const autoresCorrespondem = sobrenomesOpenAlex.length > 0 &&
+      autoresCrossref.length > 0 &&
+      sobrenomesOpenAlex.every(nome => autoresCrossref.includes(nome));
     if (!autoresCorrespondem) {
       return { ...fonte, verificacaoCrossref: 'Divergência de autoria no Crossref' };
     }
