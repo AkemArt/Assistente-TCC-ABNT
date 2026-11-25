@@ -253,7 +253,7 @@ function emailContato() {
 
 function montarCabecalhosOpenAlex(chave) {
   const email = emailContato();
-  const emailValido = email && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);
+  const emailValido = email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const identificacao = 'Assistente-TCC-ABNT/1.3 (academic research assistant' +
     (emailValido ? '; mailto:' + email : '') + ')';
   const cabecalhos = {
