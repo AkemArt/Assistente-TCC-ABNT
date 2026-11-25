@@ -91,6 +91,9 @@ async function saveProject(project) {
     title,
     titulo: title,
     tema: title,
+    objective: String(project.objective || project.problem || '').slice(0, 2000),
+    objetivo: String(project.objective || project.problem || '').slice(0, 2000),
+    project_objective: String(project.objective || project.problem || '').slice(0, 2000),
     page_count: pageCount,
     paginas: pageCount,
     folhas: pageCount
@@ -521,7 +524,7 @@ async function generateTccPptx(project) {
     },
     {
       heading: 'Objetivos e Abordagem Metodológica',
-      body: `Analisar "${project.title}" com base em fontes científicas e literatura especializada, estruturando a discussão de forma crítica e verificável sob orientação de ${project.advisorName}.`
+      body: `Objetivo do projeto: ${project.objective || project.problem || 'A definir pelo estudante.'} Abordagem: analisar "${project.title}" com base em fontes científicas e literatura especializada, estruturando a discussão de forma crítica e verificável sob orientação de ${project.advisorName}.`
     },
     {
       heading: 'Síntese e Próximos Passos',
