@@ -103,6 +103,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
       'Ano: ' + (fonte.ano || 'Não informado'),
       'Periódico/fonte: ' + (fonte.revista || 'Não informado'),
       'DOI/link: ' + (fonte.doi || fonte.link || 'Não informado'),
+      'Conferência dos metadados: ' + (fonte.verificacaoCrossref || 'Não verificada'),
       'Resumo: ' + (fonte.resumo || 'Resumo indisponível; não utilizar para sustentar afirmações.')
     ].join('\n');
   }).join('\n\n');
