@@ -575,6 +575,17 @@ test('OpenAlex envia a chave no cabeçalho Authorization, nunca na URL', () => {
   assert.equal(montarCabecalhosOpenAlex('').Authorization, undefined);
 });
 
+test('OpenAlex identifica o aplicativo com mailto válido no User-Agent', () => {
+  const original = process.env.CONTACT_EMAIL;
+  process.env.CONTACT_EMAIL = 'pesquisa@example.org';
+  try {
+    assert.match(montarCabecalhosOpenAlex('').['User-Agent'], /mailto:pesquisa@example\\.org/);
+  } finally {
+    if (original === undefined) delete process.env.CONTACT_EMAIL;
+    else process.env.CONTACT_EMAIL = original;
+  }
+});
+
 test('consulta do Crossref remove pontuação e operadores e limita o tamanho', () => {
   assert.equal(limparConsultaCrossref('finanças: "educação" AND (risco)!'), 'finanças educação AND risco');
   assert.ok(limparConsultaCrossref('palavra '.repeat(100)).length <= 200);
