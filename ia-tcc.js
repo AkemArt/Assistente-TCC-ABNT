@@ -3,6 +3,24 @@ require('dotenv').config();
 const { GoogleGenAI } = require('@google/genai');
 const { pesquisarTrabalhos, formatarReferenciaABNT } = require('./pesquisa-academica');
 
+function ordenarFontesBibliografia(fontes) {
+  return [...(fontes || [])].sort((a, b) => {
+    const primeiroSobrenome = fonte =>
+      normalizarParaComparacao((fonte.autores || [])[0] || '').split(' ').filter(Boolean).pop() || '';
+    const sobrenomeA = primeiroSobrenome(a);
+    const sobrenomeB = primeiroSobrenome(b);
+    const comparacaoSobrenome = sobrenomeA.localeCompare(sobrenomeB, 'pt-BR');
+    if (comparacaoSobrenome !== 0) return comparacaoSobrenome;
+
+    const autoresA = normalizarParaComparacao((a.autores || []).join(' '));
+    const autoresB = normalizarParaComparacao((b.autores || []).join(' '));
+    const comparacaoAutores = autoresA.localeCompare(autoresB, 'pt-BR');
+    if (comparacaoAutores !== 0) return comparacaoAutores;
+
+    return String(a.titulo || '').localeCompare(String(b.titulo || ''), 'pt-BR');
+  });
+}
+
 function normalizarAutorParaCitacao(nome) {
   const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
   if (!partes.length) return '';
@@ -420,9 +438,10 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     }
   }
 
-  const referencias = fontes
-    .filter(fonte => fontesCitadas.has(fonte.idFonte))
-    .map(formatarReferenciaABNT);
+  const fontesCitadasOrdenadas = ordenarFontesBibliografia(
+    fontes.filter(fonte => fontesCitadas.has(fonte.idFonte))
+  );
+  const referencias = fontesCitadasOrdenadas.map(formatarReferenciaABNT);
 
   if (!referencias.length) {
     throw new Error('Nenhuma referência pôde ser vinculada às citações do texto. A geração foi interrompida.');
@@ -471,7 +490,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     texto: partes.join('\n\n'),
     secoes,
     fontes,
-    fontesCitadas: fontes.filter(fonte => fontesCitadas.has(fonte.idFonte)),
+    fontesCitadas: fontesCitadasOrdenadas,
     referencias,
     relatorioPesquisa: relatorio
   };
@@ -485,5 +504,6 @@ async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount 
 module.exports = {
   gerarTextoTCC,
   gerarRascunhoComPesquisa,
-  formatarCitacao
+  formatarCitacao,
+  ordenarFontesBibliografia
 };
