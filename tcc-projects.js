@@ -248,6 +248,7 @@ async function generateTccDocx(project, pesquisa = null) {
     ['2 PROBLEMA DE PESQUISA', secoes.problemaPesquisa],
     ['3 OBJETIVOS', secoes.objetivos],
     ['4 FUNDAMENTAÇÃO TEÓRICA', secoes.fundamentacaoTeorica],
+    ...((secoes.citacoesConsagradas || []).length ? [['4.1 CITAÇÕES DE AUTORES CONSAGRADOS', secoes.citacoesConsagradas]] : []),
     ['5 METODOLOGIA', secoes.metodologia],
     ['6 DISCUSSÃO', secoes.discussao],
     ['7 CONCLUSÃO', secoes.conclusao],
@@ -371,6 +372,7 @@ async function generateTccPptx(project, pesquisa = null) {
     { heading: 'Objetivo do projeto', body: project.objective || project.problem || 'Objetivo não informado.' },
     { heading: 'Introdução e problema de pesquisa', body: resumoSecao('introducao') + '\n\n' + resumoSecao('problemaPesquisa') },
     { heading: 'Objetivos e fundamentação teórica', body: resumoSecao('objetivos') + '\n\n' + resumoSecao('fundamentacaoTeorica') },
+    ...((secoes.citacoesConsagradas || []).length ? [{ heading: 'Citações de autores consagrados', body: resumoSecao('citacoesConsagradas') }] : []),
     { heading: 'Metodologia proposta', body: resumoSecao('metodologia') },
     { heading: 'Discussão e conclusão', body: resumoSecao('discussao') + '\n\n' + resumoSecao('conclusao') },
     { heading: 'Fontes e verificações', body: (pesquisa?.referencias || []).join('\n') + '\n\n' + (pesquisa?.relatorioPesquisa || 'Consulte os textos originais e valide as referências com o orientador.') }

@@ -240,6 +240,28 @@ function calcularEsperaRetryAfter(valor, fallbackMs, limiteMs = 10000) {
   return fallbackMs;
 }
 
+// A OpenAlex permite consultas básicas sem chave. A chave gratuita aumenta a
+// cota disponível e é recomendada para uso contínuo. Quando configurada, é enviada
+// no cabeçalho Authorization para não aparecer em logs.
+function chaveOpenAlex() {
+  return String(process.env.OPENALEX_API_KEY || '').trim();
+}
+
+function emailContato() {
+  return String(process.env.CONTACT_EMAIL || process.env.CROSSREF_MAILTO || '').trim();
+}
+
+function montarCabecalhosOpenAlex(chave) {
+  const cabecalhos = {
+    Accept: 'application/json',
+    'User-Agent': 'Assistente-TCC-ABNT/1.3 (academic research assistant)'
+  };
+  if (chave) cabecalhos.Authorization = 'Bearer ' + chave;
+  return cabecalhos;
+}
+
+let avisouSemChaveOpenAlex = false;
+
 async function consultarOpenAlex(consulta, quantidade) {
   const chaveCache = consulta.trim().toLowerCase() + '::' + quantidade;
   const cache = cacheOpenAlex.get(chaveCache);
@@ -247,11 +269,21 @@ async function consultarOpenAlex(consulta, quantidade) {
     return cache.resultados;
   }
 
+  const chaveApi = chaveOpenAlex();
+  if (!chaveApi && !avisouSemChaveOpenAlex) {
+    avisouSemChaveOpenAlex = true;
+    console.warn('ℹ️ OPENALEX_API_KEY não configurada. A pesquisa seguirá com a cota pública básica; configure uma chave gratuita se houver HTTP 429 recorrente.');
+  }
+
   const params = new URLSearchParams({
     search: consulta,
     'per-page': String(quantidade),
     sort: 'relevance_score:desc'
   });
+  const email = emailContato();
+  if (email && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+    params.set('mailto', email);
+  }
   const url = BASE_URL + '?' + params.toString();
   let ultimoErro;
 
@@ -260,10 +292,7 @@ async function consultarOpenAlex(consulta, quantidade) {
   for (let tentativa = 0; tentativa < 3; tentativa += 1) {
     try {
       const resposta = await fetch(url, {
-        headers: {
-          Accept: 'application/json',
-          'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic research assistant)'
-        },
+        headers: montarCabecalhosOpenAlex(chaveApi),
         signal: AbortSignal.timeout(25000)
       });
 
@@ -303,13 +332,25 @@ async function consultarOpenAlex(consulta, quantidade) {
     ' após tentativas automáticas na OpenAlex. Aguarde alguns minutos e tente novamente.');
 }
 
-function mapearTrabalho(trabalho, termosTema, termosObjetivo = []) {
+// Pontua pelo melhor grupo de termos: o tema digitado e as palavras-chave geradas pela IA
+// (em português e inglês). Sem isso, artigos em inglês seriam descartados por não conterem
+// as palavras exatas do tema em português.
+function pontuarMelhorGrupo(termosTema, gruposTermos, titulo, resumo) {
+  return (gruposTermos || []).reduce(
+    (melhor, grupo) => grupo && grupo.length
+      ? Math.max(melhor, pontuarRelevancia(grupo, titulo, resumo))
+      : melhor,
+    pontuarRelevancia(termosTema, titulo, resumo)
+  );
+}
+
+function mapearTrabalho(trabalho, termosTema, termosObjetivo = [], gruposTermos = []) {
   const autores = (trabalho.authorships || [])
     .map(item => item.author && item.author.display_name)
     .filter(Boolean);
   const resumo = extrairResumo(trabalho.abstract_inverted_index);
   const titulo = trabalho.title || 'Título não informado';
-  const relevanciaTema = pontuarRelevancia(termosTema, titulo, resumo || '');
+  const relevanciaTema = pontuarMelhorGrupo(termosTema, gruposTermos, titulo, resumo || '');
   const relevanciaObjetivo = termosObjetivo.length
     ? pontuarRelevancia(termosObjetivo, titulo, resumo || '')
     : null;
@@ -379,7 +420,7 @@ async function consultarCrossrefComRetry(doiLimpo) {
   for (let tentativa = 0; tentativa < 3; tentativa += 1) {
     try {
       const resposta = await fetch('https://api.crossref.org/works/' + encodeURIComponent(doiLimpo), {
-        headers: { Accept: 'application/json', 'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic metadata verification)' },
+        headers: cabecalhosCrossref('academic metadata verification'),
         signal: AbortSignal.timeout(15000)
       });
       if (resposta.status === 429 || resposta.status >= 500) {
@@ -462,7 +503,7 @@ function limparResumoCrossref(valor) {
   return texto.length >= 80 ? texto : null;
 }
 
-function mapearRegistroCrossref(registro, termosTema, termosObjetivo = []) {
+function mapearRegistroCrossref(registro, termosTema, termosObjetivo = [], gruposTermos = []) {
   const titulo = Array.isArray(registro.title) ? String(registro.title[0] || '').trim() : '';
   const resumo = limparResumoCrossref(registro.abstract);
   const autores = (registro.author || [])
@@ -481,7 +522,7 @@ function mapearRegistroCrossref(registro, termosTema, termosObjetivo = []) {
   // Somente tipos de publicação efetivamente aceitos pela triagem seguem adiante.
   const tipo = tipoCrossref === 'journal-article' ? 'article' :
     tipoCrossref === 'proceedings-article' ? 'proceedings-article' : tipoCrossref;
-  const relevanciaTema = pontuarRelevancia(termosTema, titulo, resumo || '');
+  const relevanciaTema = pontuarMelhorGrupo(termosTema, gruposTermos, titulo, resumo || '');
   const relevanciaObjetivo = termosObjetivo.length
     ? pontuarRelevancia(termosObjetivo, titulo, resumo || '')
     : null;
@@ -519,26 +560,61 @@ function mapearRegistroCrossref(registro, termosTema, termosObjetivo = []) {
   };
 }
 
-async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjetivo) {
-  const encontrados = [];
-  const consultasUnicas = [...new Set(consultas)].slice(0, 2);
-  for (const consulta of consultasUnicas) {
-    const params = new URLSearchParams({
-      'query.bibliographic': consulta,
-      rows: String(Math.min(quantidade * 4, 40)),
-      select: 'DOI,title,author,published,published-print,published-online,issued,type,container-title,volume,issue,page,URL,link,abstract,is-referenced-by-count,language'
-    });
-    let resposta;
-    let ultimoErroBusca;
-    // A busca geral do Crossref também pode limitar requisições (HTTP 429).
-    // Respeita Retry-After e aplica espera progressiva antes de declarar falha.
+const CAMPOS_SELECT_CROSSREF = 'DOI,title,author,published,published-print,published-online,issued,type,container-title,volume,issue,page,URL,link,abstract,is-referenced-by-count,language';
+
+function cabecalhosCrossref(finalidade) {
+  const email = emailContato();
+  return {
+    Accept: 'application/json',
+    'User-Agent': 'Assistente-TCC-ABNT/1.3 (' + finalidade + (email ? '; mailto:' + email : '') + ')'
+  };
+}
+
+// Remove pontuação e operadores que podem tornar a consulta inválida (HTTP 400).
+function limparConsultaCrossref(consulta) {
+  return String(consulta || '')
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+}
+
+function montarParametrosCrossref(consulta, quantidade, {
+  comSelect = false,
+  comFiltro = false,
+  campoConsulta = 'query.bibliographic'
+} = {}) {
+  const termo = limparConsultaCrossref(consulta);
+  const params = new URLSearchParams({
+    [campoConsulta]: termo,
+    rows: String(Math.min(Math.max(Number(quantidade) || 5, 1) * 3, 30))
+  });
+  if (comFiltro) params.set('filter', 'type:journal-article');
+  if (comSelect) params.set('select', CAMPOS_SELECT_CROSSREF);
+  const email = emailContato();
+  if (email && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) params.set('mailto', email);
+  return params;
+}
+
+// Crossref recebe primeiro a consulta bibliográfica simples. Se a API rejeitar
+// algum parâmetro, reduzimos progressivamente a requisição e, por último,
+// tentamos o parâmetro genérico "query". A triagem acadêmica é feita localmente.
+async function buscarPaginaCrossref(consulta, quantidade) {
+  const variantes = [
+    { comSelect: false, comFiltro: false, campoConsulta: 'query.bibliographic' },
+    { comSelect: true, comFiltro: false, campoConsulta: 'query.bibliographic' },
+    { comSelect: false, comFiltro: true, campoConsulta: 'query.bibliographic' },
+    { comSelect: false, comFiltro: false, campoConsulta: 'query' }
+  ];
+  let ultimoErro;
+  for (const variante of variantes) {
+    const url = 'https://api.crossref.org/works?' +
+      montarParametrosCrossref(consulta, quantidade, variante).toString();
+    let rejeitada = false;
     for (let tentativa = 0; tentativa < 3; tentativa += 1) {
       try {
-        resposta = await fetch('https://api.crossref.org/works?' + params.toString(), {
-          headers: {
-            Accept: 'application/json',
-            'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic research fallback)'
-          },
+        const resposta = await fetch(url, {
+          headers: cabecalhosCrossref('academic research fallback'),
           signal: AbortSignal.timeout(25000)
         });
         if (resposta.status === 429 || resposta.status >= 500) {
@@ -547,20 +623,28 @@ async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjeti
             [1500, 3500, 7000][tentativa],
             10000
           );
-          ultimoErroBusca = new Error('Crossref retornou HTTP ' + resposta.status + ' na busca alternativa.');
+          ultimoErro = new Error('Crossref retornou HTTP ' + resposta.status + ' na busca alternativa.');
           if (tentativa < 2) {
             await aguardar(espera);
             continue;
           }
           break;
         }
+        if (resposta.status === 400) {
+          let corpo = '';
+          try { corpo = String(await resposta.text()).replace(/\\s+/g, ' ').slice(0, 240); } catch { /* sem corpo */ }
+          console.warn('⚠️ Crossref HTTP 400 (campo=' + variante.campoConsulta +
+            ', select=' + variante.comSelect + ', filtro=' + variante.comFiltro + '): ' + corpo);
+          ultimoErro = new Error('Crossref retornou HTTP 400 na busca alternativa (campo=' + variante.campoConsulta + ').');
+          rejeitada = true;
+          break;
+        }
         if (!resposta.ok) {
           throw new Error('Crossref retornou HTTP ' + resposta.status + ' na busca alternativa.');
         }
-        ultimoErroBusca = null;
-        break;
+        return await resposta.json();
       } catch (error) {
-        ultimoErroBusca = error;
+        ultimoErro = error;
         if (tentativa < 2 && (error.name === 'TimeoutError' || error.name === 'AbortError' || error.cause)) {
           await aguardar([1000, 2500, 5000][tentativa]);
           continue;
@@ -568,13 +652,27 @@ async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjeti
         break;
       }
     }
-    if (!resposta || ultimoErroBusca) {
-      throw ultimoErroBusca || new Error('Falha de conexão na busca alternativa do Crossref.');
+    if (!rejeitada) break;
+    await aguardar(250);
+  }
+  throw ultimoErro || new Error('Falha de conexão na busca alternativa do Crossref.');
+}
+
+async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjetivo, gruposTermos = []) {
+  const encontrados = [];
+  let ultimoErroBusca = null;
+  const consultasUnicas = [...new Set(consultas)].slice(0, 3);
+  for (const consulta of consultasUnicas) {
+    let dados;
+    try {
+      dados = await buscarPaginaCrossref(consulta, quantidade);
+    } catch (erroBusca) {
+      ultimoErroBusca = erroBusca;
+      continue;
     }
-    const dados = await resposta.json();
     const itens = dados && dados.message && Array.isArray(dados.message.items) ? dados.message.items : [];
     for (const item of itens) {
-      const mapeado = mapearRegistroCrossref(item, termosTema, termosObjetivo);
+      const mapeado = mapearRegistroCrossref(item, termosTema, termosObjetivo, gruposTermos);
       if (
         tipoPublicacaoAcademicaAceito(mapeado.tipo) &&
         mapeado.pontuacaoRelevancia >= 15 &&
@@ -584,6 +682,7 @@ async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjeti
     }
     await aguardar(300);
   }
+  if (!encontrados.length && ultimoErroBusca) throw ultimoErroBusca;
   const unicos = new Map();
   for (const item of encontrados) {
     const chave = normalizarDoi(item.doi) || item.titulo.toLowerCase();
@@ -596,7 +695,7 @@ async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjeti
     .slice(0, Math.min(quantidade * 2, 20));
 }
 
-async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
+async function pesquisarTrabalhos(tema, limite = 8, objetivo = '', opcoes = {}) {
   if (!tema || !String(tema).trim()) {
     throw new Error('Informe um tema para pesquisar.');
   }
@@ -606,7 +705,14 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
   if (!termos.length) throw new Error('Não foi possível identificar palavras-chave no tema informado.');
   const termosObjetivo = extrairTermos(objetivo).slice(0, 5);
 
-  const consultas = montarConsultas(tema, objetivo);
+  // Consultas geradas pela IA (específicas do tema, em PT e EN) vêm primeiro; o tema original
+  // continua como consulta de reserva.
+  const consultasIA = (Array.isArray(opcoes.consultas) ? opcoes.consultas : [])
+    .map(c => String(c || '').trim()).filter(Boolean).slice(0, 4);
+  const consultas = consultasIA.length
+    ? [...new Set([...consultasIA, ...montarConsultas(tema, objetivo).slice(0, 1)])]
+    : montarConsultas(tema, objetivo);
+  const gruposTermos = consultasIA.map(extrairTermos).filter(grupo => grupo.length);
   const trabalhosBrutos = [];
   const erros = [];
 
@@ -619,7 +725,7 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
     } catch (error) {
       erros.push(error && error.message || 'Falha na consulta');
       // Se a OpenAlex estiver limitando, não insistir nas demais consultas.
-      if (/HTTP 429|limite de requisições/i.test(String(error.message || ''))) break;
+      if (/HTTP (?:429|401|403|409)|limite de requisições|sem chave/i.test(String(error.message || ''))) break;
     }
   }
 
@@ -629,7 +735,7 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
     console.warn('⚠️ OpenAlex indisponível; ativando busca alternativa no Crossref:', erros[0] || 'sem resultados');
     basePesquisa = 'Crossref';
     try {
-      candidatos = await pesquisarCrossref(consultas, quantidade, termos, termosObjetivo);
+      candidatos = await pesquisarCrossref(consultas, quantidade, termos, termosObjetivo, gruposTermos);
     } catch (erroCrossref) {
       throw new Error(
         'OpenAlex indisponível (' + (erros[0] || 'sem resultados') +
@@ -639,7 +745,7 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
   } else {
     const unicos = new Map();
     for (const trabalho of trabalhosBrutos) {
-      const mapeado = mapearTrabalho(trabalho, termos, termosObjetivo);
+      const mapeado = mapearTrabalho(trabalho, termos, termosObjetivo, gruposTermos);
       const chave = mapeado.doi || mapeado.openAlexId || mapeado.titulo.toLowerCase();
       if (!unicos.has(chave) || mapeado.pontuacaoRelevancia > unicos.get(chave).pontuacaoRelevancia) {
         unicos.set(chave, mapeado);
@@ -661,7 +767,7 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
   if (!candidatos.length && basePesquisa !== 'Crossref') {
     console.warn('⚠️ OpenAlex retornou registros, mas nenhum passou pela triagem. Ativando busca alternativa no Crossref.');
     try {
-      candidatos = await pesquisarCrossref(consultas, quantidade, termos, termosObjetivo);
+      candidatos = await pesquisarCrossref(consultas, quantidade, termos, termosObjetivo, gruposTermos);
       basePesquisa = 'Crossref';
     } catch (erroCrossref) {
       throw new Error('OpenAlex não forneceu fontes aprovadas pela triagem (' +
@@ -753,5 +859,9 @@ module.exports = {
   verificarNoCrossref,
   urlHttpsPublica,
   tipoPublicacaoAcademicaAceito,
-  fetchPdfComRedirecionamentosSeguros
+  fetchPdfComRedirecionamentosSeguros,
+  montarCabecalhosOpenAlex,
+  montarParametrosCrossref,
+  limparConsultaCrossref,
+  pontuarMelhorGrupo
 };

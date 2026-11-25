@@ -382,7 +382,8 @@ test('confirma metadados Crossref somente quando título, autoria e ano coincide
         }
       })
     });
-    const divergente = await verificarNoCrossref(fonte);
+    // DOI diferente: o Crossref guarda cache por DOI e reaproveitaria o cenário anterior.
+    const divergente = await verificarNoCrossref({ ...fonte, doi: '10.1234/teste-divergente' });
     assert.equal(divergente.verificacaoCrossref, 'Divergência de autoria no Crossref');
   } finally {
     globalThis.fetch = fetchOriginal;
@@ -550,4 +551,116 @@ test('não mantém PDF HTTP ou privado na referência bibliográfica', () => {
     biblio: {}
   }, ['secure', 'research', 'links']);
   assert.equal(fonte.pdfUrl, null);
+});
+
+// ---------------------------------------------------------------------------
+// Busca de artigos: chave OpenAlex, resiliência do Crossref e termos da IA
+// ---------------------------------------------------------------------------
+const {
+  montarCabecalhosOpenAlex,
+  montarParametrosCrossref,
+  limparConsultaCrossref,
+  pontuarMelhorGrupo,
+  pesquisarTrabalhos
+} = require('../pesquisa-academica');
+const {
+  validarCitacoesConsagradas,
+  formatarCitacaoConsagrada,
+  listarModelosGemini,
+  erroModeloIndisponivel
+} = require('../ia-tcc');
+
+test('OpenAlex envia a chave no cabeçalho Authorization, nunca na URL', () => {
+  assert.equal(montarCabecalhosOpenAlex('abc123').Authorization, 'Bearer abc123');
+  assert.equal(montarCabecalhosOpenAlex('').Authorization, undefined);
+});
+
+test('consulta do Crossref remove pontuação e operadores e limita o tamanho', () => {
+  assert.equal(limparConsultaCrossref('finanças: "educação" AND (risco)!'), 'finanças educação AND risco');
+  assert.ok(limparConsultaCrossref('palavra '.repeat(100)).length <= 200);
+  const params = montarParametrosCrossref('educação financeira', 8);
+  assert.equal(params.get('rows'), '32');
+  assert.match(params.get('filter'), /journal-article/);
+  assert.ok(params.get('select'));
+  const simples = montarParametrosCrossref('x y', 5, { comSelect: false, comFiltro: false });
+  assert.equal(simples.get('select'), null);
+  assert.equal(simples.get('filter'), null);
+});
+
+test('artigo em inglês é pontuado pelas palavras-chave geradas pela IA', () => {
+  const termosPt = ['educacao', 'financeira'];
+  const ingles = ['financial', 'literacy'];
+  const titulo = 'Financial literacy and household savings';
+  assert.equal(pontuarMelhorGrupo(termosPt, [], titulo, ''), 0);
+  assert.ok(pontuarMelhorGrupo(termosPt, [ingles], titulo, '') >= 60);
+});
+
+test('sem chave OpenAlex vai direto ao Crossref e se recupera de HTTP 400', async () => {
+  const fetchOriginal = globalThis.fetch;
+  const chaveOriginal = process.env.OPENALEX_API_KEY;
+  delete process.env.OPENALEX_API_KEY;
+  const urls = [];
+  const item = {
+    DOI: '10.1111/exemplo',
+    title: ['Educação financeira e decisões de poupança'],
+    author: [{ given: 'Ana', family: 'Silva' }],
+    published: { 'date-parts': [[2022]] },
+    type: 'journal-article',
+    'container-title': ['Revista de Finanças'],
+    abstract: 'Estudo sobre educação financeira e decisões de poupança de famílias brasileiras em diferentes faixas de renda.',
+    URL: 'https://doi.org/10.1111/exemplo'
+  };
+  try {
+    globalThis.fetch = async (url) => {
+      urls.push(String(url));
+      if (String(url).includes('api.openalex.org')) throw new Error('OpenAlex não deveria ser chamada sem chave');
+      if (String(url).includes('select=')) {
+        return { status: 400, ok: false, text: async () => 'Select qualifier specified with invalid fields', headers: { get: () => null } };
+      }
+      return { status: 200, ok: true, json: async () => ({ message: { items: [item] } }), headers: { get: () => null } };
+    };
+    const fontes = await pesquisarTrabalhos('educação financeira', 3, '', { consultas: ['financial literacy savings', 'educação financeira poupança'] });
+    assert.equal(fontes.length, 1);
+    assert.equal(fontes[0].fonteDados, 'Crossref');
+    assert.ok(urls.every(u => !u.includes('openalex')));
+    assert.ok(urls.some(u => u.includes('select=')) && urls.some(u => !u.includes('select=')));
+  } finally {
+    globalThis.fetch = fetchOriginal;
+    if (chaveOriginal !== undefined) process.env.OPENALEX_API_KEY = chaveOriginal;
+  }
+});
+
+test('citações de autores só passam com origem confirmada, tamanho e ano válidos', () => {
+  const base = {
+    autor: 'Rachel Carson', sobrenome: 'Carson',
+    citacao: 'Quanto mais claramente pudermos focalizar nossa atenção nas maravilhas e realidades do universo, menos gosto teremos pela destruição.',
+    obra: 'Silent Spring', ano: 1962,
+    relacao: 'Relaciona a atenção à natureza com a preservação ambiental.',
+    confirmadaNaBusca: true, traducaoLivre: true
+  };
+  const validas = validarCitacoesConsagradas([
+    base,
+    { ...base, autor: 'Outro', citacao: 'Frase sem confirmação na busca web feita', confirmadaNaBusca: false },
+    { ...base, autor: 'Sem Ano', citacao: 'Frase longa o suficiente para passar no teste', ano: 'desconhecido' },
+    { ...base, autor: 'Curta', citacao: 'Muito curta' },
+    { ...base },
+    null
+  ]);
+  assert.equal(validas.length, 1);
+  const [citacao, obra] = formatarCitacaoConsagrada(validas[0]);
+  assert.match(citacao, /\(CARSON, 1962, tradução nossa\)\.$/);
+  assert.match(obra, /Silent Spring/);
+});
+
+test('troca de modelo Gemini: reconhece 404 e respeita GEMINI_MODEL com vários modelos', () => {
+  assert.equal(erroModeloIndisponivel({ status: 404 }), true);
+  assert.equal(erroModeloIndisponivel(new Error('models/x is no longer available')), true);
+  assert.equal(erroModeloIndisponivel(new Error('HTTP 429 RESOURCE_EXHAUSTED')), false);
+  const original = process.env.GEMINI_MODEL;
+  process.env.GEMINI_MODEL = 'modelo-a, modelo-b';
+  try {
+    assert.deepEqual(listarModelosGemini(), ['modelo-a', 'modelo-b']);
+  } finally {
+    if (original === undefined) delete process.env.GEMINI_MODEL; else process.env.GEMINI_MODEL = original;
+  }
 });
