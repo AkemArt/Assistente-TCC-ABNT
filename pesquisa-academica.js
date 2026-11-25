@@ -466,9 +466,10 @@ function mapearRegistroCrossref(registro, termosTema, termosObjetivo = []) {
     /pdf/i.test(String(item['content-type'] || '')) && urlHttpsPublica(item.URL)
   );
   const tipoCrossref = String(registro.type || '').toLowerCase();
+  // Crossref 'journal' representa o periódico como entidade, não um artigo de revisão.
+  // Somente tipos de publicação efetivamente aceitos pela triagem seguem adiante.
   const tipo = tipoCrossref === 'journal-article' ? 'article' :
-    tipoCrossref === 'proceedings-article' ? 'proceedings-article' :
-    tipoCrossref === 'journal' ? 'review' : tipoCrossref;
+    tipoCrossref === 'proceedings-article' ? 'proceedings-article' : tipoCrossref;
   const relevanciaTema = pontuarRelevancia(termosTema, titulo, resumo || '');
   const relevanciaObjetivo = termosObjetivo.length
     ? pontuarRelevancia(termosObjetivo, titulo, resumo || '')
