@@ -7,7 +7,8 @@ const {
   TextRun,
   HeadingLevel,
   AlignmentType,
-  PageBreak
+  PageBreak,
+  ExternalHyperlink
 } = require('docx');
 const PptxGenJS = require('pptxgenjs');
 
@@ -249,13 +250,39 @@ async function generateTccDocx(project, pesquisa = null) {
     }
   }
 
-  children.push(sectionHeading('REFERÊNCIAS PRELIMINARES'));
-  for (const referencia of resultadoPesquisa.referencias || []) {
+  children.push(sectionHeading('REFERÊNCIAS'));
+  for (let i = 0; i < (resultadoPesquisa.referencias || []).length; i += 1) {
+    const referencia = resultadoPesquisa.referencias[i];
     children.push(abntParagraph(referencia, {
       align: AlignmentType.LEFT,
       firstLineIndent: 0,
-      spaceAfter: 180
+      spaceAfter: 100
     }));
+    const fonte = (resultadoPesquisa.fontes || []).find(item =>
+      referencia.includes(item.titulo) || item.idFonte === 'F' + (i + 1)
+    );
+    const urlArtigo = fonte && (fonte.urlPaginaArtigo || fonte.link ||
+      (fonte.doi ? 'https://doi.org/' + String(fonte.doi).replace(/^https?:\\/\\/doi\\.org\\//i, '') : null));
+    if (urlArtigo && /^https:\\/\\//i.test(urlArtigo)) {
+      children.push(new Paragraph({
+        indent: { left: 360 },
+        spacing: { after: 180 },
+        children: [new ExternalHyperlink({
+          link: urlArtigo,
+          children: [new TextRun({ text: 'Acessar artigo / página oficial', style: 'Hyperlink', font: 'Times New Roman', size: 20 })]
+        })]
+      }));
+    }
+    if (fonte && fonte.pdfUrl && /^https:\\/\\//i.test(fonte.pdfUrl)) {
+      children.push(new Paragraph({
+        indent: { left: 360 },
+        spacing: { after: 180 },
+        children: [new ExternalHyperlink({
+          link: fonte.pdfUrl,
+          children: [new TextRun({ text: 'Abrir texto completo em PDF (acesso aberto)', style: 'Hyperlink', font: 'Times New Roman', size: 20 })]
+        })]
+      }));
+    }
   }
 
   children.push(sectionHeading('RELATÓRIO DA PESQUISA'));
@@ -333,6 +360,38 @@ async function generateTccPptx(project, pesquisa = null) {
       x: 0.7, y: 1.35, w: 12, h: 5.4,
       fontSize: 13, color: '1E293B', valign: 'top',
       breakLine: false, paraSpaceAfterPt: 8, fit: 'shrink'
+    });
+  }
+
+  for (const fonte of (pesquisa?.fontes || [])) {
+    const slide = pptx.addSlide();
+    slide.background = { color: 'F8FAFC' };
+    slide.addText('Referência bibliográfica e acesso ao estudo', {
+      x: 0.7, y: 0.6, w: 12, h: 0.6,
+      fontSize: 23, bold: true, color: palette.primary
+    });
+    slide.addText(String(fonte.titulo || 'Título não informado'), {
+      x: 0.8, y: 1.5, w: 11.7, h: 1.1,
+      fontSize: 20, bold: true, color: '1E293B', valign: 'top', fit: 'shrink'
+    });
+    slide.addText(String((fonte.autores || []).join('; ') + ' (' + (fonte.ano || 's.d.') + ')'), {
+      x: 0.8, y: 2.8, w: 11.7, h: 0.6,
+      fontSize: 14, color: '334155', valign: 'top'
+    });
+    const urlArtigo = fonte.urlPaginaArtigo || fonte.link ||
+      (fonte.doi ? 'https://doi.org/' + String(fonte.doi).replace(/^https?:\\/\\/doi\\.org\\//i, '') : null);
+    if (urlArtigo && /^https:\\/\\//i.test(urlArtigo)) {
+      slide.addText([{ text: 'Abrir página oficial do artigo / DOI', options: { hyperlink: { url: urlArtigo, tooltip: 'Abrir artigo ou registro DOI' }, color: '0563C1', underline: { color: '0563C1' } } }], {
+        x: 0.8, y: 3.8, w: 11.7, h: 0.45, fontSize: 16
+      });
+    }
+    if (fonte.pdfUrl && /^https:\\/\\//i.test(fonte.pdfUrl)) {
+      slide.addText([{ text: 'Abrir texto completo em PDF (acesso aberto)', options: { hyperlink: { url: fonte.pdfUrl, tooltip: 'Abrir PDF do artigo' }, color: '0563C1', underline: { color: '0563C1' } } }], {
+        x: 0.8, y: 4.45, w: 11.7, h: 0.45, fontSize: 16
+      });
+    }
+    slide.addText('Situação do texto: ' + String(fonte.statusTextoCompleto || 'Não verificada') + '\\nMetadados: ' + String(fonte.verificacaoCrossref || 'Não verificados'), {
+      x: 0.8, y: 5.25, w: 11.7, h: 0.8, fontSize: 12, color: '475569', valign: 'top'
     });
   }
 
