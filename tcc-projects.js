@@ -310,6 +310,10 @@ async function generateTccDocx(project, pesquisa = null) {
   ));
   children.push(sectionHeading('RELATÓRIO DA PESQUISA'));
   for (const linha of String(resultadoPesquisa.relatorioPesquisa || '').split('\n').filter(Boolean)) {
+    if (/^(MATRIZ DE RASTREABILIDADE DAS AFIRMAÇÕES|AFIRMAÇÃO \d+)$/.test(linha.trim())) {
+      children.push(sectionHeading(linha.trim()));
+      continue;
+    }
     children.push(abntParagraph(linha, {
       align: AlignmentType.LEFT,
       firstLineIndent: 0,
