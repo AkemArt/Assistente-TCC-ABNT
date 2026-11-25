@@ -517,15 +517,47 @@ async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjeti
       rows: String(Math.min(quantidade * 4, 40)),
       select: 'DOI,title,author,published,published-print,published-online,issued,type,container-title,volume,issue,page,URL,link,abstract,is-referenced-by-count,language'
     });
-    const resposta = await fetch('https://api.crossref.org/works?' + params.toString(), {
-      headers: {
-        Accept: 'application/json',
-        'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic research fallback)'
-      },
-      signal: AbortSignal.timeout(25000)
-    });
-    if (!resposta.ok) {
-      throw new Error('Crossref retornou HTTP ' + resposta.status + ' na busca alternativa.');
+    let resposta;
+    let ultimoErroBusca;
+    // A busca geral do Crossref também pode limitar requisições (HTTP 429).
+    // Respeita Retry-After e aplica espera progressiva antes de declarar falha.
+    for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+      try {
+        resposta = await fetch('https://api.crossref.org/works?' + params.toString(), {
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic research fallback)'
+          },
+          signal: AbortSignal.timeout(25000)
+        });
+        if (resposta.status === 429 || resposta.status >= 500) {
+          const retryHeader = Number(resposta.headers.get('retry-after'));
+          const espera = Number.isFinite(retryHeader) && retryHeader > 0
+            ? Math.min(retryHeader * 1000, 10000)
+            : [1500, 3500, 7000][tentativa];
+          ultimoErroBusca = new Error('Crossref retornou HTTP ' + resposta.status + ' na busca alternativa.');
+          if (tentativa < 2) {
+            await aguardar(espera);
+            continue;
+          }
+          break;
+        }
+        if (!resposta.ok) {
+          throw new Error('Crossref retornou HTTP ' + resposta.status + ' na busca alternativa.');
+        }
+        ultimoErroBusca = null;
+        break;
+      } catch (error) {
+        ultimoErroBusca = error;
+        if (tentativa < 2 && (error.name === 'TimeoutError' || error.name === 'AbortError' || error.cause)) {
+          await aguardar([1000, 2500, 5000][tentativa]);
+          continue;
+        }
+        break;
+      }
+    }
+    if (!resposta || ultimoErroBusca) {
+      throw ultimoErroBusca || new Error('Falha de conexão na busca alternativa do Crossref.');
     }
     const dados = await resposta.json();
     const itens = dados && dados.message && Array.isArray(dados.message.items) ? dados.message.items : [];
