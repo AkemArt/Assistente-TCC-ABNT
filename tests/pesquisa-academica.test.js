@@ -579,7 +579,7 @@ test('OpenAlex identifica o aplicativo com mailto válido no User-Agent', () => 
   const original = process.env.CONTACT_EMAIL;
   process.env.CONTACT_EMAIL = 'pesquisa@example.org';
   try {
-    assert.match(montarCabecalhosOpenAlex('').['User-Agent'], /mailto:pesquisa@example\\.org/);
+    assert.ok(montarCabecalhosOpenAlex('')['User-Agent'].includes('mailto:pesquisa@example.org'));
   } finally {
     if (original === undefined) delete process.env.CONTACT_EMAIL;
     else process.env.CONTACT_EMAIL = original;
