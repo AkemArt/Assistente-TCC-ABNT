@@ -187,7 +187,7 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
   }
 
   const candidatos = [...unicos.values()]
-    .filter(item => item.pontuacaoRelevancia >= 15 && item.titulo && item.autores.length && item.ano && item.link)
+    .filter(item => item.pontuacaoRelevancia >= 15 && item.titulo && item.autores.length && item.ano && item.doi && item.link && item.resumo)
     .sort((a, b) => b.pontuacaoRelevancia - a.pontuacaoRelevancia)
     .slice(0, Math.min(quantidade * 2, 20));
 
