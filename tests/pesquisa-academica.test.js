@@ -6,7 +6,8 @@ const {
   pontuarRelevancia,
   formatarReferenciaABNT,
   mapearTrabalho,
-  verificarNoCrossref
+  verificarNoCrossref,
+  urlHttpsPublica
 } = require('../pesquisa-academica');
 const {
   formatarCitacao,
@@ -379,4 +380,17 @@ test('confirma metadados Crossref somente quando título, autoria e ano coincide
   } finally {
     globalThis.fetch = fetchOriginal;
   }
+});
+
+test('permite HTTPS público e bloqueia endereços locais, reservados e esquemas inseguros', () => {
+  assert.equal(urlHttpsPublica('https://example.org/paper.pdf'), true);
+  assert.equal(urlHttpsPublica('http://example.org/paper.pdf'), false);
+  assert.equal(urlHttpsPublica('https://127.0.0.1/paper.pdf'), false);
+  assert.equal(urlHttpsPublica('https://10.0.0.5/paper.pdf'), false);
+  assert.equal(urlHttpsPublica('https://172.20.0.1/paper.pdf'), false);
+  assert.equal(urlHttpsPublica('https://192.168.1.1/paper.pdf'), false);
+  assert.equal(urlHttpsPublica('https://100.64.0.1/paper.pdf'), false);
+  assert.equal(urlHttpsPublica('https://[::1]/paper.pdf'), false);
+  assert.equal(urlHttpsPublica('https://metadata.internal/latest'), false);
+  assert.equal(urlHttpsPublica('https://user:pass@example.org/paper.pdf'), false);
 });
