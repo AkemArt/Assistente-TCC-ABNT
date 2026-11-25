@@ -463,5 +463,6 @@ module.exports = {
   mapearTrabalho,
   verificarNoCrossref,
   urlHttpsPublica,
-  tipoPublicacaoAcademicaAceito
+  tipoPublicacaoAcademicaAceito,
+  fetchPdfComRedirecionamentosSeguros
 };
