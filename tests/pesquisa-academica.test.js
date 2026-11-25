@@ -467,3 +467,22 @@ test('exige fonte em cada parágrafo de introdução, teoria, discussão e concl
     /não possui marcador de fonte/
   );
 });
+
+test('rejeita excerto curto demais para identificar uma evidência acadêmica', () => {
+  const fonte = {
+    idFonte: 'F1',
+    titulo: 'Estudo',
+    resumo: 'The study reports a positive result in the observed sample.'
+  };
+  const paragrafo = 'O estudo relata um resultado observado [F1].';
+  const dados = {
+    introducao: [paragrafo],
+    problemaPesquisa: [], objetivos: [], fundamentacaoTeorica: [],
+    metodologia: [], discussao: [], conclusao: [],
+    evidencias: [{ paragrafo, fonteId: 'F1', trecho: 'positive result' }]
+  };
+  assert.throws(
+    () => validarEvidenciasTextuais(dados, [fonte]),
+    /3 a 25 palavras/
+  );
+});
