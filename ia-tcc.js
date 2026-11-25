@@ -3,23 +3,49 @@ require('dotenv').config();
 const { GoogleGenAI } = require('@google/genai');
 const { pesquisarTrabalhos, formatarReferenciaABNT } = require('./pesquisa-academica');
 
-function formatarCitacao(fonte) {
+function normalizarAutorParaCitacao(nome) {
+  const partes = String(nome || '').trim().split(/\s+/).filter(Boolean);
+  if (!partes.length) return '';
+  const sobrenomeOriginal = partes[partes.length - 1];
+  const sobrenome = sobrenomeOriginal === sobrenomeOriginal.toLocaleUpperCase('pt-BR')
+    ? sobrenomeOriginal.charAt(0).toLocaleUpperCase('pt-BR') + sobrenomeOriginal.slice(1).toLocaleLowerCase('pt-BR')
+    : sobrenomeOriginal.charAt(0).toLocaleUpperCase('pt-BR') + sobrenomeOriginal.slice(1);
+  return sobrenome;
+}
+
+function formatarCitacao(fonte, todasFontes = []) {
   const autores = Array.isArray(fonte.autores) ? fonte.autores : [];
-  if (!autores.length) return '(AUTORIA NÃO IDENTIFICADA, ' + (fonte.ano || 's.d.') + ')';
-  const sobrenomes = autores.map(nome => {
-    const partes = String(nome).trim().split(/\s+/);
-    return (partes[partes.length - 1] || nome).toUpperCase();
-  });
-  const autor = sobrenomes.length > 2
+  if (!autores.length) return '(Autoria não identificada, ' + (fonte.ano || 's.d.') + ')';
+
+  const sobrenomes = autores.map(normalizarAutorParaCitacao).filter(Boolean);
+  if (!sobrenomes.length) return '(Autoria não identificada, ' + (fonte.ano || 's.d.') + ')';
+
+  const mesmoAutorEAno = (todasFontes || []).filter(item =>
+    String(item.ano || '') === String(fonte.ano || '') &&
+    JSON.stringify((item.autores || []).map(a => normalizarAutorParaCitacao(a)).sort()) ===
+      JSON.stringify(autores.map(a => normalizarAutorParaCitacao(a)).sort())
+  );
+  const ordenadas = mesmoAutorEAno.slice().sort((a, b) =>
+    String(a.titulo || '').localeCompare(String(b.titulo || ''), 'pt-BR')
+  );
+  const indice = ordenadas.findIndex(item =>
+    (item.openAlexId && fonte.openAlexId && item.openAlexId === fonte.openAlexId) ||
+    (item.titulo && fonte.titulo && item.titulo === fonte.titulo)
+  );
+  const sufixoAno = ordenadas.length > 1 && indice >= 0
+    ? String.fromCharCode(97 + indice)
+    : '';
+
+  const autor = sobrenomes.length >= 4
     ? sobrenomes[0] + ' et al.'
-    : sobrenomes.join(' e ');
-  return '(' + autor + ', ' + (fonte.ano || 's.d.') + ')';
+    : sobrenomes.join('; ');
+  return '(' + autor + ', ' + (fonte.ano || 's.d.') + sufixoAno + ')';
 }
 
 function substituirMarcadores(texto, fontes) {
   return String(texto || '').replace(/\[F(\d+)\]/g, (marcador, numero) => {
     const fonte = fontes[Number(numero) - 1];
-    return fonte ? formatarCitacao(fonte) : '[MARCADOR DE FONTE INVÁLIDO]';
+    return fonte ? formatarCitacao(fonte, fontes) : '[MARCADOR DE FONTE INVÁLIDO]';
   });
 }
 
@@ -457,5 +483,6 @@ async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount 
 
 module.exports = {
   gerarTextoTCC,
-  gerarRascunhoComPesquisa
+  gerarRascunhoComPesquisa,
+  formatarCitacao
 };
