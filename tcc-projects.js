@@ -420,10 +420,15 @@ async function generateTccDocx(project) {
       spacing: { before: 1200, after: 1600 },
       children: [new TextRun({ text: String(project.title || '').toUpperCase(), font: 'Times New Roman', size: 28, bold: true })]
     }),
-    new Paragraph({
+    ...(project.city || project.location ? [new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 1400 },
-      children: [new TextRun({ text: String(project.city || project.location || '[CIDADE]').toUpperCase() + ' — ' + (project.year || new Date().getFullYear()), font: 'Times New Roman', size: 24, bold: true })]
+      children: [new TextRun({ text: String(project.city || project.location).toUpperCase(), font: 'Times New Roman', size: 24, bold: true })]
+    })] : []),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 200 },
+      children: [new TextRun({ text: String(project.year || new Date().getFullYear()), font: 'Times New Roman', size: 24, bold: true })]
     }),
     new Paragraph({ children: [new PageBreak()] })
   ];
