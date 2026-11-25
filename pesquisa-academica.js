@@ -240,9 +240,9 @@ function calcularEsperaRetryAfter(valor, fallbackMs, limiteMs = 10000) {
   return fallbackMs;
 }
 
-// Desde 13/02/2026 a OpenAlex exige chave de API (gratuita) em todas as requisições.
-// Sem ela o serviço limita o acesso e responde com erros (429/409). A chave vai no
-// cabeçalho Authorization, e não na URL, para não aparecer em logs.
+// A OpenAlex permite consultas básicas sem chave. A chave gratuita aumenta a
+// cota disponível e é recomendada para uso contínuo. Quando configurada, é enviada
+// no cabeçalho Authorization para não aparecer em logs.
 function chaveOpenAlex() {
   return String(process.env.OPENALEX_API_KEY || '').trim();
 }
@@ -270,12 +270,9 @@ async function consultarOpenAlex(consulta, quantidade) {
   }
 
   const chaveApi = chaveOpenAlex();
-  if (!chaveApi) {
-    if (!avisouSemChaveOpenAlex) {
-      avisouSemChaveOpenAlex = true;
-      console.warn('⚠️ OPENALEX_API_KEY não configurada: a OpenAlex exige chave de API (gratuita) desde fev/2026. Usando Crossref como base principal.');
-    }
-    throw new Error('OpenAlex sem chave de API (OPENALEX_API_KEY ausente) HTTP 401');
+  if (!chaveApi && !avisouSemChaveOpenAlex) {
+    avisouSemChaveOpenAlex = true;
+    console.warn('ℹ️ OPENALEX_API_KEY não configurada. A pesquisa seguirá com a cota pública básica; configure uma chave gratuita se houver HTTP 429 recorrente.');
   }
 
   const params = new URLSearchParams({
