@@ -8,7 +8,8 @@ const {
   mapearTrabalho,
   verificarNoCrossref,
   urlHttpsPublica,
-  tipoPublicacaoAcademicaAceito
+  tipoPublicacaoAcademicaAceito,
+  fetchPdfComRedirecionamentosSeguros
 } = require('../pesquisa-academica');
 const {
   formatarCitacao,
@@ -485,4 +486,50 @@ test('rejeita excerto curto demais para identificar uma evidência acadêmica', 
     () => validarEvidenciasTextuais(dados, [fonte]),
     /3 a 25 palavras/
   );
+});
+
+test('retorna a URL final após validar cada redirecionamento HTTPS do PDF', async () => {
+  const fetchOriginal = globalThis.fetch;
+  const chamadas = [];
+  try {
+    globalThis.fetch = async url => {
+      chamadas.push(String(url));
+      if (chamadas.length === 1) {
+        return {
+          status: 302,
+          headers: { get: nome => nome.toLowerCase() === 'location' ? 'https://cdn.example.org/final.pdf' : null }
+        };
+      }
+      return {
+        status: 200,
+        ok: true,
+        headers: { get: () => null }
+      };
+    };
+    const resultado = await fetchPdfComRedirecionamentosSeguros('https://example.org/start.pdf');
+    assert.equal(resultado.resposta.status, 200);
+    assert.equal(resultado.urlFinal, 'https://cdn.example.org/final.pdf');
+    assert.deepEqual(chamadas, [
+      'https://example.org/start.pdf',
+      'https://cdn.example.org/final.pdf'
+    ]);
+  } finally {
+    globalThis.fetch = fetchOriginal;
+  }
+});
+
+test('bloqueia redirecionamento de PDF para endereço local', async () => {
+  const fetchOriginal = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => ({
+      status: 302,
+      headers: { get: () => 'https://127.0.0.1/private.pdf' }
+    });
+    await assert.rejects(
+      fetchPdfComRedirecionamentosSeguros('https://example.org/start.pdf'),
+      /Endereço de PDF ou redirecionamento não permitido/
+    );
+  } finally {
+    globalThis.fetch = fetchOriginal;
+  }
 });
