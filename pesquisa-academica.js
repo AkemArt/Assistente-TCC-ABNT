@@ -309,7 +309,7 @@ async function consultarOpenAlex(consulta, quantidade) {
         let detalheLimite = '';
         if (resposta.status === 429) {
           try {
-            detalheLimite = String(await resposta.text()).replace(/\\s+/g, ' ').slice(0, 300);
+            detalheLimite = String(await resposta.text()).replace(/\s+/g, ' ').slice(0, 300);
           } catch { /* corpo opcional */ }
           console.warn('⚠️ OpenAlex HTTP 429: ' + (detalheLimite || 'detalhe não fornecido pela API'));
         }
