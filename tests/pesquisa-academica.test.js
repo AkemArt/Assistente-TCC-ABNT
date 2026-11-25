@@ -6,7 +6,10 @@ const {
   pontuarRelevancia,
   formatarReferenciaABNT
 } = require('../pesquisa-academica');
-const { formatarCitacao } = require('../ia-tcc');
+const {
+  formatarCitacao,
+  ordenarFontesBibliografia
+} = require('../ia-tcc');
 
 test('reconstrói resumo a partir do índice invertido do OpenAlex', () => {
   const resumo = extrairResumo({
@@ -86,4 +89,17 @@ test('distingue publicações do mesmo autor no mesmo ano com letras', () => {
   ];
   assert.equal(formatarCitacao(fontes[1], fontes), '(Lovelace, 2024a)');
   assert.equal(formatarCitacao(fontes[0], fontes), '(Lovelace, 2024b)');
+});
+
+test('ordena a bibliografia por sobrenome do primeiro autor e título', () => {
+  const ordenadas = ordenarFontesBibliografia([
+    { autores: ['Zelda Costa'], titulo: 'Pesquisa Z' },
+    { autores: ['Ada Lovelace'], titulo: 'Pesquisa B' },
+    { autores: ['Ada Lovelace'], titulo: 'Pesquisa A' }
+  ]);
+  assert.deepEqual(ordenadas.map(item => item.titulo), [
+    'Pesquisa A',
+    'Pesquisa B',
+    'Pesquisa Z'
+  ]);
 });
