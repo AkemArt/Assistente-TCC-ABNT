@@ -1,3 +1,5 @@
+const { isIP } = require('node:net');
+
 const BASE_URL = 'https://api.openalex.org/works';
 const MAX_PDF_BYTES = 12 * 1024 * 1024;
 const MAX_FULLTEXT_CHARS = 120000;
@@ -21,20 +23,38 @@ function normalizarDoi(valor) {
 function urlHttpsPublica(valor) {
   try {
     const url = new URL(valor);
-    if (url.protocol !== 'https:') return false;
-    const host = url.hostname.toLowerCase();
-    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
-    if (/^(127\.|10\.|192\.168\.|169\.254\.)/.test(host)) return false;
-    const partes = host.split('.');
-    if (partes.length === 4 && partes.every(p => /^\d+$/.test(p))) {
-      const a = Number(partes[0]);
-      const b = Number(partes[1]);
-      if (a === 0 || a === 10 || a === 127 || a >= 224 ||
-          (a === 172 && b >= 16 && b <= 31) ||
-          (a === 169 && b === 254) ||
-          (a === 192 && b === 168)) return false;
+    if (url.protocol !== 'https:' || url.username || url.password) return false;
+
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      host.endsWith('.lan')
+    ) return false;
+
+    const tipoIp = isIP(host);
+    // Endereços IPv6 literais são recusados para evitar falhas de classificação
+    // de faixas locais, link-local, mapeadas e reservadas.
+    if (tipoIp === 6) return false;
+
+    if (tipoIp === 4) {
+      const [a, b, c, d] = host.split('.').map(Number);
+      if (
+        a === 0 || a === 10 || a === 127 || a >= 224 ||
+        (a === 100 && b >= 64 && b <= 127) ||
+        (a === 169 && b === 254) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && (b === 0 || b === 168)) ||
+        (a === 192 && b === 88 && c === 99) ||
+        (a === 198 && (b === 18 || b === 19)) ||
+        (a === 198 && b === 51 && c === 100) ||
+        (a === 203 && b === 0 && c === 113) ||
+        (a === 255 && b === 255 && c === 255 && d === 255)
+      ) return false;
     }
-    if (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) return false;
+
     return true;
   } catch {
     return false;
@@ -427,5 +447,6 @@ module.exports = {
   extrairResumo,
   pontuarRelevancia,
   mapearTrabalho,
-  verificarNoCrossref
+  verificarNoCrossref,
+  urlHttpsPublica
 };
