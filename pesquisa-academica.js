@@ -281,7 +281,7 @@ async function consultarOpenAlex(consulta, quantidade) {
     sort: 'relevance_score:desc'
   });
   const email = emailContato();
-  if (email && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     params.set('mailto', email);
   }
   const url = BASE_URL + '?' + params.toString();
@@ -592,7 +592,7 @@ function montarParametrosCrossref(consulta, quantidade, {
   if (comFiltro) params.set('filter', 'type:journal-article');
   if (comSelect) params.set('select', CAMPOS_SELECT_CROSSREF);
   const email = emailContato();
-  if (email && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) params.set('mailto', email);
+  if (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) params.set('mailto', email);
   return params;
 }
 
@@ -632,7 +632,7 @@ async function buscarPaginaCrossref(consulta, quantidade) {
         }
         if (resposta.status === 400) {
           let corpo = '';
-          try { corpo = String(await resposta.text()).replace(/\\s+/g, ' ').slice(0, 240); } catch { /* sem corpo */ }
+          try { corpo = String(await resposta.text()).replace(/\s+/g, ' ').slice(0, 240); } catch { /* sem corpo */ }
           console.warn('⚠️ Crossref HTTP 400 (campo=' + variante.campoConsulta +
             ', select=' + variante.comSelect + ', filtro=' + variante.comFiltro + '): ' + corpo);
           ultimoErro = new Error('Crossref retornou HTTP 400 na busca alternativa (campo=' + variante.campoConsulta + ').');
