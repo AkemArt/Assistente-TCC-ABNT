@@ -567,7 +567,7 @@ const {
   validarCitacoesConsagradas,
   formatarCitacaoConsagrada,
   listarModelosGemini,
-  erroModeloIndisponivel
+  erroPermiteFallbackModelo
 } = require('../ia-tcc');
 
 test('OpenAlex envia a chave no cabeçalho Authorization, nunca na URL', () => {
@@ -683,9 +683,10 @@ test('citações de autores só passam com origem confirmada, tamanho e ano vál
 });
 
 test('troca de modelo Gemini: reconhece 404 e respeita GEMINI_MODEL com vários modelos', () => {
-  assert.equal(erroModeloIndisponivel({ status: 404 }), true);
-  assert.equal(erroModeloIndisponivel(new Error('models/x is no longer available')), true);
-  assert.equal(erroModeloIndisponivel(new Error('HTTP 429 RESOURCE_EXHAUSTED')), false);
+  assert.equal(erroPermiteFallbackModelo({ status: 404 }), true);
+  assert.equal(erroPermiteFallbackModelo(new Error('models/x is no longer available')), true);
+  assert.equal(erroPermiteFallbackModelo(new Error('HTTP 429 RESOURCE_EXHAUSTED')), true);
+  assert.equal(erroPermiteFallbackModelo({ status: 500 }), false);
   const original = process.env.GEMINI_MODEL;
   process.env.GEMINI_MODEL = 'modelo-a, modelo-b';
   try {
