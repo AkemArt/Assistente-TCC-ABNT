@@ -226,24 +226,71 @@ function montarConsultas(tema, objetivo = '') {
   return [...new Set(consultas)].slice(0, 3);
 }
 
+const cacheOpenAlex = new Map();
+const CACHE_OPENALEX_TTL_MS = 10 * 60 * 1000;
+
+const aguardar = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 async function consultarOpenAlex(consulta, quantidade) {
+  const chaveCache = consulta.trim().toLowerCase() + '::' + quantidade;
+  const cache = cacheOpenAlex.get(chaveCache);
+  if (cache && Date.now() - cache.timestamp < CACHE_OPENALEX_TTL_MS) {
+    return cache.resultados;
+  }
+
   const params = new URLSearchParams({
     search: consulta,
     'per-page': String(quantidade),
     sort: 'relevance_score:desc'
   });
-  const resposta = await fetch(BASE_URL + '?' + params.toString(), {
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'Assistente-TCC-ABNT/1.1 (academic research assistant)'
-    },
-    signal: AbortSignal.timeout(20000)
-  });
-  if (!resposta.ok) {
-    throw new Error('OpenAlex retornou HTTP ' + resposta.status + ' para a consulta: ' + consulta);
+  const url = BASE_URL + '?' + params.toString();
+  let ultimoErro;
+
+  // Evita disparar consultas simultâneas contra a OpenAlex. Em caso de
+  // limite temporário (HTTP 429), respeita Retry-After com teto seguro.
+  for (let tentativa = 0; tentativa < 3; tentativa += 1) {
+    try {
+      const resposta = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic research assistant)'
+        },
+        signal: AbortSignal.timeout(25000)
+      });
+
+      if (resposta.status === 429 || resposta.status >= 500) {
+        const retryHeader = Number(resposta.headers.get('retry-after'));
+        const espera = Number.isFinite(retryHeader) && retryHeader > 0
+          ? Math.min(retryHeader * 1000, 8000)
+          : [1500, 3500, 7000][tentativa];
+        ultimoErro = new Error('OpenAlex retornou HTTP ' + resposta.status);
+        if (tentativa < 2) {
+          await aguardar(espera);
+          continue;
+        }
+        break;
+      }
+
+      if (!resposta.ok) {
+        throw new Error('OpenAlex retornou HTTP ' + resposta.status + ' para a consulta: ' + consulta);
+      }
+
+      const dados = await resposta.json();
+      const resultados = Array.isArray(dados.results) ? dados.results : [];
+      cacheOpenAlex.set(chaveCache, { timestamp: Date.now(), resultados });
+      return resultados;
+    } catch (error) {
+      ultimoErro = error;
+      if (tentativa < 2 && (error.name === 'TimeoutError' || error.name === 'AbortError' || error.cause)) {
+        await aguardar([1000, 2500, 5000][tentativa]);
+        continue;
+      }
+      break;
+    }
   }
-  const dados = await resposta.json();
-  return Array.isArray(dados.results) ? dados.results : [];
+
+  throw new Error((ultimoErro && ultimoErro.message || 'Falha de conexão') +
+    ' após tentativas automáticas na OpenAlex. Aguarde alguns minutos e tente novamente.');
 }
 
 function mapearTrabalho(trabalho, termosTema, termosObjetivo = []) {
@@ -360,16 +407,20 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
   const termosObjetivo = extrairTermos(objetivo).slice(0, 5);
 
   const consultas = montarConsultas(tema, objetivo);
-  const resultados = await Promise.allSettled(
-    consultas.map(consulta => consultarOpenAlex(consulta, quantidade))
-  );
-
   const trabalhosBrutos = [];
   const erros = [];
-  for (let i = 0; i < resultados.length; i += 1) {
-    const item = resultados[i];
-    if (item.status === 'fulfilled') trabalhosBrutos.push(...item.value);
-    else erros.push(item.reason && item.reason.message || 'Falha na consulta');
+
+  // Consultas sequenciais para respeitar os limites do serviço e reduzir 429.
+  for (let i = 0; i < consultas.length; i += 1) {
+    try {
+      const encontrados = await consultarOpenAlex(consultas[i], quantidade);
+      trabalhosBrutos.push(...encontrados);
+      if (i < consultas.length - 1) await aguardar(500);
+    } catch (error) {
+      erros.push(error && error.message || 'Falha na consulta');
+      // Se a OpenAlex estiver limitando, não insistir nas demais consultas.
+      if (/HTTP 429|limite de requisições/i.test(String(error.message || ''))) break;
+    }
   }
 
   if (!trabalhosBrutos.length) {
