@@ -158,12 +158,6 @@ async function processTccProject(interaction, project, totalLabel) {
     throw new Error('A geração terminou sem produzir os dois arquivos. O envio foi cancelado para evitar anexos vazios.');
   }
 
-  const criarAnexos = () => [
-    new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
-    new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
-  ];
-  const mensagemArquivos = `📄 Projeto nº ${saved.id} — Word ABNT e PowerPoint. Confira os links dos artigos e valide as fontes com seu orientador.`;
-
   // DOCX e PPTX são contêineres ZIP. Verifica a assinatura antes de anexar,
   // para não enviar buffers vazios, HTML de erro ou arquivos corrompidos.
   const assinaturaZip = Buffer.from([0x50, 0x4b]);
