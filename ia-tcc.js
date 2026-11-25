@@ -391,7 +391,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '4. Não cite uma fonte sem resumo ou texto integral como evidência de conteúdo. Ela pode aparecer somente como referência localizada, sinalizando que o conteúdo precisa ser consultado.',
     '5. Não atribua ao artigo resultados que não estejam descritos no material efetivamente disponibilizado. Quando só houver resumo, limite as afirmações ao resumo e não diga que leu o texto completo.',
     '6. Não invente citações diretas, páginas, DOI, autores, datas ou títulos.',
-    '7. Faça síntese crítica: aproxime e contraste achados quando os resumos permitirem; não faça uma lista mecânica de artigos.',
+    '7. Faça síntese crítica: aproxime e contraste achados quando o texto integral ou os resumos efetivamente disponibilizados permitirem; não faça uma lista mecânica de artigos.',
     '8. Desenvolva o raciocínio a partir do recorte real do tema. Explique conceitos específicos e relações entre variáveis somente quando houver base nas fontes.',
     '9. Não invente metodologia já executada. Apresente uma proposta metodológica compatível com o objetivo e sinalize o que o estudante precisa decidir.',
     '10. Não use parágrafos genéricos sobre a importância da tecnologia, sociedade ou atualidade se não forem pertinentes ao tema.',
