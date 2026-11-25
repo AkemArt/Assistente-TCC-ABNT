@@ -1,4 +1,5 @@
 const db = require('./database');
+const { gerarRascunhoComPesquisa } = require('./ia-tcc');
 const {
   Document,
   Packer,
@@ -387,18 +388,15 @@ function sectionHeading(text) {
       new TextRun({
         text: String(text).toUpperCase(),
         font: 'Times New Roman',
-        size: 24,
-        bold: true
-      })
-    ]
-  });
-}
-
-async function generateTccDocx(project) {
+   async function generateTccDocx(project) {
   const institutionCourse = project.courseAndInstitution || project.course || 'CURSO E INSTITUIÇÃO';
-  const articles = await fetchRealArticles(project);
-  const content = await generateAcademicBodyWithAI(project, articles);
+  const pesquisa = await gerarRascunhoComPesquisa({
+    tema: project.title,
+    objetivo: project.objective || project.problem || project.focusNote || '',
+    limite: 8
+  });
 
+  const secoes = pesquisa.secoes;
   const children = [
     new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -408,52 +406,76 @@ async function generateTccDocx(project) {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 800, after: 400 },
-      children: [new TextRun({ text: String(project.studentName).toUpperCase(), font: 'Times New Roman', size: 24, bold: true })]
+      children: [new TextRun({ text: String(project.studentName || '').toUpperCase(), font: 'Times New Roman', size: 24, bold: true })]
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 1200, after: 1600 },
-      children: [new TextRun({ text: String(project.title).toUpperCase(), font: 'Times New Roman', size: 28, bold: true })]
+      children: [new TextRun({ text: String(project.title || '').toUpperCase(), font: 'Times New Roman', size: 28, bold: true })]
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { before: 1400 },
       children: [new TextRun({ text: 'CARAGUATATUBA — 2026', font: 'Times New Roman', size: 24, bold: true })]
     }),
-    new Paragraph({ children: [new PageBreak()] }),
-
-    sectionHeading('1 Introdução, Problema e Proposta de Solução'),
-    ...content.introducao.map(p => abntParagraph(p)),
-
-    sectionHeading('2 Objetivos'),
-    ...content.objetivos.map(p => abntParagraph(p)),
-
-    sectionHeading('3 Fundamentação Teórica e Metodologia'),
-    ...content.fundamentacaoMetodologia.map(p => abntParagraph(p)),
-
-    sectionHeading('4 Conclusão'),
-    ...content.conclusao.map(p => abntParagraph(p)),
-
-    sectionHeading('Referências'),
-    ...content.referencias.map(ref =>
-      abntParagraph(ref, { align: AlignmentType.LEFT, firstLineIndent: 0, spaceAfter: 180 })
-    )
+    new Paragraph({ children: [new PageBreak()] })
   ];
 
+  const secoesDocumento = [
+    ['1 INTRODUÇÃO', secoes.introducao],
+    ['2 PROBLEMA DE PESQUISA', secoes.problemaPesquisa],
+    ['3 OBJETIVOS', secoes.objetivos],
+    ['4 FUNDAMENTAÇÃO TEÓRICA', secoes.fundamentacaoTeorica],
+    ['5 METODOLOGIA', secoes.metodologia],
+    ['6 DISCUSSÃO', secoes.discussao],
+    ['7 CONCLUSÃO', secoes.conclusao],
+    ['8 LIMITAÇÕES DAS FONTES', secoes.limitacoes],
+    ['9 PONTOS PARA VERIFICAÇÃO', secoes.verificacoes]
+  ];
+
+  for (const [titulo, paragrafos] of secoesDocumento) {
+    children.push(sectionHeading(titulo));
+    for (const paragrafo of paragrafos || []) children.push(abntParagraph(paragrafo));
+  }
+
+  children.push(sectionHeading('REFERÊNCIAS PRELIMINARES'));
+  for (const referencia of pesquisa.referencias || []) {
+    children.push(abntParagraph(referencia, {
+      align: AlignmentType.LEFT,
+      firstLineIndent: 0,
+      spaceAfter: 180
+    }));
+  }
+
+  children.push(sectionHeading('RELATÓRIO DA PESQUISA'));
+  for (const linha of String(pesquisa.relatorioPesquisa || '').split('\n').filter(Boolean)) {
+    children.push(abntParagraph(linha, {
+      align: AlignmentType.LEFT,
+      firstLineIndent: 0,
+      spaceAfter: 100
+    }));
+  }
+
   const doc = new Document({
-    sections: [
-      {
-        properties: {
-          page: {
-            margin: {
-              top: 1701,
-              left: 1701,
-              bottom: 1134,
-              right: 1134
-            }
+    sections: [{
+      properties: {
+        page: {
+          margin: {
+            top: 1701,
+            left: 1701,
+            bottom: 1134,
+            right: 1134
           }
-        },
-        children
+        }
+      },
+      children
+    }]
+  });
+
+  return Packer.toBuffer(doc);
+}
+
+en
       }
     ]
   });
