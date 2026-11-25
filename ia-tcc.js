@@ -118,8 +118,11 @@ function validarVinculoDeEvidencias(dados, fontes) {
       const marcadores = texto.match(/\[F\d+\]/g) || [];
       const contemCitacaoAutorData = /\([^)]{1,100}\b(?:19|20)\d{2}[a-z]?\s*\)/i.test(texto);
 
-      if (contemCitacaoAutorData && marcadores.length === 0) {
-        throw new Error('Foi encontrada uma citação autor-data sem vínculo com uma fonte recuperada. O texto foi bloqueado para evitar referência inventada.');
+      if (contemCitacaoAutorData) {
+        throw new Error(
+          'A IA escreveu uma citação autor-data diretamente, em vez de usar somente os marcadores [F#]. ' +
+          'A citação foi bloqueada para impedir autores ou anos não vinculados ao catálogo de fontes.'
+        );
       }
 
       for (const marcador of marcadores) {
@@ -353,6 +356,10 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     throw new Error('GEMINI_API_KEY ou GOOGLE_API_KEY não configurada. A geração acadêmica foi interrompida para não produzir texto genérico sem IA.');
   }
   if (!tema || !String(tema).trim()) throw new Error('Informe o tema do TCC.');
+  const paginasPermitidas = new Set([10, 15, 20, 25, 30, 40, 50, 60]);
+  if (!paginasPermitidas.has(Number(pageCount))) {
+    throw new Error('A quantidade de páginas deve ser uma das opções disponíveis: 10, 15, 20, 25, 30, 40, 50 ou 60.');
+  }
   if (!Array.isArray(fontes) || !fontes.length) {
     throw new Error('Nenhuma fonte acadêmica foi localizada. Não será gerada uma redação com referências presumidas.');
   }
@@ -442,12 +449,16 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
   const palavrasGeradas = contarPalavrasSecoes(parsed);
   const palavrasEsperadas = Number(pageCount) * 250;
   const minimoAceitavel = Math.ceil(palavrasEsperadas * 0.8);
-  if (palavrasGeradas < minimoAceitavel) {
+  const maximoAceitavel = Math.ceil(palavrasEsperadas * 1.25);
+  if (palavrasGeradas < minimoAceitavel || palavrasGeradas > maximoAceitavel) {
+    const motivo = palavrasGeradas < minimoAceitavel
+      ? 'abaixo da extensão mínima'
+      : 'acima da extensão máxima';
     throw new Error(
-      'O texto gerado ficou abaixo da extensão mínima: ' +
-      palavrasGeradas + ' palavras; mínimo esperado para ' + pageCount +
-      ' páginas: ' + minimoAceitavel +
-      '. Nenhum documento será apresentado como completo. Tente novamente ou reduza a extensão.'
+      'O texto gerado ficou ' + motivo + ': ' +
+      palavrasGeradas + ' palavras; faixa esperada para ' + pageCount +
+      ' páginas: ' + minimoAceitavel + ' a ' + maximoAceitavel +
+      '. Nenhum documento será apresentado como completo. Tente novamente ou ajuste a extensão.'
     );
   }
 
