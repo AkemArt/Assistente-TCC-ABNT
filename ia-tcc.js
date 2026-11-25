@@ -46,7 +46,7 @@ function validarSecoes(dados) {
   return obrigatorias.every(chave => Array.isArray(dados[chave]));
 }
 
-async function gerarTextoTCC({ tema, objetivo, fontes }) {
+async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY ou GOOGLE_API_KEY não configurada. A geração acadêmica foi interrompida para não produzir texto genérico sem IA.');
@@ -76,6 +76,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes }) {
     '',
     'TEMA: ' + tema,
     'OBJETIVO INFORMADO: ' + (objetivo || 'Ainda não informado; não invente objetivo específico.'),
+    'EXTENSÃO SOLICITADA: aproximadamente ' + pageCount + ' páginas no documento final. Desenvolva o conteúdo proporcionalmente, com profundidade e sem repetição artificial. Use cerca de 250 palavras por página de texto principal como referência aproximada; a paginação real depende da diagramação, elementos pré-textuais e referências.',
     '',
     'FONTES REAIS RECUPERADAS NA OPENALEX:',
     fontesText,
@@ -83,6 +84,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes }) {
     'REGRAS INEGOCIÁVEIS DE EVIDÊNCIA:',
     '1. Use exclusivamente as fontes listadas para citações e afirmações atribuídas a estudos.',
     '2. Quando uma afirmação for sustentada por uma fonte, inclua o marcador exato [F1], [F2] etc. no fim da frase. O programa converterá esses marcadores em citações autor-data.',
+    '2A. Atenda à extensão com desenvolvimento substantivo: contextualização específica, conceitos, comparação crítica dos estudos, explicação metodológica e discussão. Não repita ideias nem invente conteúdo para preencher páginas.',
     '3. Nunca escreva nomes de pesquisadores famosos, teorias, estatísticas, resultados ou citações textuais que não estejam comprovados nos dados das fontes fornecidas.',
     '4. Não cite uma fonte sem resumo como evidência de conteúdo. Ela pode aparecer somente como referência localizada, sinalizando que o conteúdo precisa ser consultado.',
     '5. Não atribua ao artigo resultados que não estejam descritos no resumo. Não diga que leu o texto completo.',
@@ -189,9 +191,9 @@ async function gerarTextoTCC({ tema, objetivo, fontes }) {
   };
 }
 
-async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8 }) {
+async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount = 10 }) {
   const fontes = await pesquisarTrabalhos(tema, limite);
-  return gerarTextoTCC({ tema, objetivo, fontes });
+  return gerarTextoTCC({ tema, objetivo, fontes, pageCount });
 }
 
 module.exports = {
