@@ -210,10 +210,13 @@ async function processTccProject(interaction, project, totalLabel) {
     )
     .setColor('#5865F2');
 
-  await interaction.editReply({
-    content: '✅ Ficheiros Word (.docx) + PowerPoint (.pptx) enviados! Confira o conteúdo e valide as referências nos textos originais.',
-    embeds: [resumo]
-  }).catch(() => {});
+  // A interação do Discord expira após a janela de validade do webhook.
+  // O envio ao canal já confirmou a entrega; a atualização final é best-effort.
+  await safeProgress(
+    interaction,
+    '✅ Ficheiros Word (.docx) + PowerPoint (.pptx) enviados! Confira o conteúdo e valide as referências nos textos originais.',
+    totalLabel
+  ).catch(() => false);
 }
 
 function buildKeepConnectedMenu(currentValue = true) {
