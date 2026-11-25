@@ -82,7 +82,7 @@ function mapearTrabalho(trabalho, termos) {
   const titulo = trabalho.title || 'Título não informado';
   const relevancia = pontuarRelevancia(termos, titulo, resumo || '');
   const doi = trabalho.doi || null;
-  const link = doi || (trabalho.primary_location && trabalho.primary_location.landing_page_url) || trabalho.id || null;
+  const link = doi || (trabalho.primary_location && trabalho.primary_location.landing_page_url) || null;
   const revista = trabalho.primary_location && trabalho.primary_location.source
     ? trabalho.primary_location.source.display_name
     : null;
@@ -107,6 +107,47 @@ function mapearTrabalho(trabalho, termos) {
     pontuacaoRelevancia: relevancia,
     relevancia: relevancia >= 55 ? 'Mais relevante' : relevancia >= 25 ? 'Precisa de análise' : 'Relevância incerta'
   };
+}
+
+function titulosCorrespondem(tituloA, tituloB) {
+  const a = new Set(extrairTermos(tituloA));
+  const b = new Set(extrairTermos(tituloB));
+  if (!a.size || !b.size) return false;
+  const intersecao = [...a].filter(t => b.has(t)).length;
+  return intersecao / Math.max(a.size, b.size) >= 0.8;
+}
+
+async function verificarNoCrossref(fonte) {
+  if (!fonte.doi) return { ...fonte, verificacaoCrossref: 'Não verificado: DOI ausente' };
+  try {
+    const doiLimpo = String(fonte.doi).replace(/^https?:\\/\\/(dx\\.)?doi\\.org\\//i, '');
+    const resposta = await fetch('https://api.crossref.org/works/' + encodeURIComponent(doiLimpo), {
+      headers: { Accept: 'application/json', 'User-Agent': 'Assistente-TCC-ABNT/1.1 (academic metadata verification)' },
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!resposta.ok) return { ...fonte, verificacaoCrossref: 'Não confirmado no Crossref' };
+    const dados = await resposta.json();
+    const registro = dados && dados.message;
+    const tituloCrossref = registro && Array.isArray(registro.title) ? registro.title[0] : '';
+    if (!tituloCrossref || !titulosCorrespondem(fonte.titulo, tituloCrossref)) {
+      return { ...fonte, verificacaoCrossref: 'Divergência de título no Crossref' };
+    }
+    const autoresCrossref = (registro.author || []).map(a => a.family).filter(Boolean);
+    const sobrenomesOpenAlex = (fonte.autores || []).map(nome => String(nome).trim().split(/\\s+/).pop().toLowerCase());
+    const autoresCorrespondem = sobrenomesOpenAlex.length && autoresCrossref.length &&
+      sobrenomesOpenAlex.some(nome => autoresCrossref.some(sobrenome => sobrenome.toLowerCase() === nome));
+    if (!autoresCorrespondem) {
+      return { ...fonte, verificacaoCrossref: 'Divergência de autoria no Crossref' };
+    }
+    const datas = [registro.published, registro['published-print'], registro['published-online'], registro.issued]
+      .filter(Boolean).map(d => d['date-parts'] && d['date-parts'][0] && Number(d['date-parts'][0][0])).filter(Boolean);
+    if (fonte.ano && datas.length && !datas.some(ano => Math.abs(ano - Number(fonte.ano)) <= 1)) {
+      return { ...fonte, verificacaoCrossref: 'Divergência de ano no Crossref' };
+    }
+    return { ...fonte, verificacaoCrossref: 'Confirmado no Crossref', crossrefUrl: registro.URL || null };
+  } catch (error) {
+    return { ...fonte, verificacaoCrossref: 'Não verificado: ' + (error.message || 'falha na consulta') };
+  }
 }
 
 async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
@@ -145,8 +186,14 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
     }
   }
 
-  const selecionados = [...unicos.values()]
-    .filter(item => item.pontuacaoRelevancia >= 15)
+  const candidatos = [...unicos.values()]
+    .filter(item => item.pontuacaoRelevancia >= 15 && item.titulo && item.autores.length && item.ano && item.link)
+    .sort((a, b) => b.pontuacaoRelevancia - a.pontuacaoRelevancia)
+    .slice(0, Math.min(quantidade * 2, 20));
+
+  const candidatosVerificados = await Promise.all(candidatos.map(verificarNoCrossref));
+  const selecionados = candidatosVerificados
+    .filter(item => item.verificacaoCrossref === 'Confirmado no Crossref')
     .sort((a, b) => {
       if (b.pontuacaoRelevancia !== a.pontuacaoRelevancia) {
         return b.pontuacaoRelevancia - a.pontuacaoRelevancia;
@@ -161,7 +208,7 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
     }));
 
   if (!selecionados.length) {
-    throw new Error('Foram encontrados trabalhos, mas nenhum apresentou correspondência temática mínima. Refine o tema para evitar fontes desconectadas.');
+    throw new Error('Foram encontrados registros, mas nenhum pôde ser confirmado no Crossref com DOI, título, autoria e ano compatíveis. Nenhuma referência será inventada. Tente ampliar ou ajustar o tema, ou revise as fontes manualmente.');
   }
 
   return selecionados;
