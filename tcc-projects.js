@@ -404,16 +404,20 @@ function sectionHeading(text) {
   });
 }
 
-async function generateTccDocx(project) {
-  const institutionCourse = project.courseAndInstitution || project.course || 'CURSO E INSTITUIÇÃO';
-  const pesquisa = await gerarRascunhoComPesquisa({
+async function generateTccResearch(project) {
+  return gerarRascunhoComPesquisa({
     tema: project.title,
     objetivo: project.objective || project.problem || '',
     limite: 8,
     pageCount: Number(project.pageCount) || 10
   });
+}
 
-  const secoes = pesquisa.secoes;
+async function generateTccDocx(project, pesquisa = null) {
+  const institutionCourse = project.courseAndInstitution || project.course || 'CURSO E INSTITUIÇÃO';
+  const resultadoPesquisa = pesquisa || await generateTccResearch(project);
+  const secoes = resultadoPesquisa.secoes;
+
   const children = [
     new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -463,7 +467,7 @@ async function generateTccDocx(project) {
   }
 
   children.push(sectionHeading('REFERÊNCIAS PRELIMINARES'));
-  for (const referencia of pesquisa.referencias || []) {
+  for (const referencia of resultadoPesquisa.referencias || []) {
     children.push(abntParagraph(referencia, {
       align: AlignmentType.LEFT,
       firstLineIndent: 0,
@@ -472,7 +476,7 @@ async function generateTccDocx(project) {
   }
 
   children.push(sectionHeading('RELATÓRIO DA PESQUISA'));
-  for (const linha of String(pesquisa.relatorioPesquisa || '').split('\n').filter(Boolean)) {
+  for (const linha of String(resultadoPesquisa.relatorioPesquisa || '').split('\n').filter(Boolean)) {
     children.push(abntParagraph(linha, {
       align: AlignmentType.LEFT,
       firstLineIndent: 0,
@@ -499,44 +503,40 @@ async function generateTccDocx(project) {
   return Packer.toBuffer(doc);
 }
 
-async function generateTccPptx(project) {
+async function generateTccPptx(project, pesquisa = null) {
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_16x9';
   const palette = getThemePalette(project);
   const institutionCourse = project.courseAndInstitution || project.course || 'Trabalho Acadêmico';
+  const secoes = pesquisa?.secoes || {};
 
-  const s1 = pptx.addSlide();
-  s1.background = { color: palette.primary };
-  s1.addText(palette.label.toUpperCase(), {
+  const slideCapa = pptx.addSlide();
+  slideCapa.background = { color: palette.primary };
+  slideCapa.addText(palette.label.toUpperCase(), {
     x: 0.8, y: 0.7, w: 11.5, h: 0.4,
     fontSize: 13, bold: true, color: 'E2E8F0'
   });
-  s1.addText(String(project.title), {
+  slideCapa.addText(String(project.title), {
     x: 0.8, y: 1.5, w: 11.5, h: 2.2,
     fontSize: 28, bold: true, color: 'FFFFFF'
   });
-  s1.addText(`Autor(a): ${project.studentName}   |   Orientador(a): ${project.advisorName}`, {
+  slideCapa.addText(`Autor(a): ${project.studentName} | Orientador(a): ${project.advisorName}`, {
     x: 0.8, y: 4.3, w: 11.5, h: 0.5,
     fontSize: 15, color: 'F8FAFC'
   });
-  s1.addText(`${institutionCourse} • ${project.pageCount || '10'} páginas`, {
+  slideCapa.addText(`${institutionCourse} • ${project.pageCount || '10'} páginas solicitadas`, {
     x: 0.8, y: 4.9, w: 11.5, h: 0.4,
     fontSize: 13, color: 'CBD5E1'
   });
 
+  const resumoSecao = (chave) => (Array.isArray(secoes[chave]) ? secoes[chave] : []).join('\n\n');
   const slidesData = [
-    {
-      heading: 'Contexto e Problema de Pesquisa',
-      body: `Investigação focada em "${project.title}" no contexto de ${institutionCourse}, buscando compreender os fatores determinantes, lacunas práticas e evidências científicas que orientam decisões consistentes na área.`
-    },
-    {
-      heading: 'Objetivos e Abordagem Metodológica',
-      body: `Objetivo do projeto: ${project.objective || project.problem || 'A definir pelo estudante.'} Extensão solicitada: ${project.pageCount || 10} páginas. Abordagem: analisar "${project.title}" com base em fontes científicas e literatura especializada, estruturando a discussão de forma crítica e verificável sob orientação de ${project.advisorName}.`
-    },
-    {
-      heading: 'Síntese e Próximos Passos',
-      body: `Revisar as fontes recuperadas, aprofundar a análise específica do tema e validar a versão final com ${project.advisorName} e os critérios acadêmicos da instituição.`
-    }
+    { heading: 'Objetivo do projeto', body: project.objective || project.problem || 'Objetivo não informado.' },
+    { heading: 'Introdução e problema de pesquisa', body: resumoSecao('introducao') + '\n\n' + resumoSecao('problemaPesquisa') },
+    { heading: 'Objetivos e fundamentação teórica', body: resumoSecao('objetivos') + '\n\n' + resumoSecao('fundamentacaoTeorica') },
+    { heading: 'Metodologia proposta', body: resumoSecao('metodologia') },
+    { heading: 'Discussão e conclusão', body: resumoSecao('discussao') + '\n\n' + resumoSecao('conclusao') },
+    { heading: 'Fontes e verificações', body: (pesquisa?.referencias || []).join('\n') + '\n\n' + (pesquisa?.relatorioPesquisa || 'Consulte os textos originais e valide as referências com o orientador.') }
   ];
 
   for (const item of slidesData) {
@@ -546,9 +546,10 @@ async function generateTccPptx(project) {
       x: 0.7, y: 0.6, w: 12, h: 0.6,
       fontSize: 24, bold: true, color: palette.primary
     });
-    slide.addText(item.body, {
-      x: 0.7, y: 1.5, w: 12, h: 3.8,
-      fontSize: 17, color: '1E293B', valign: 'top'
+    slide.addText(String(item.body || 'Conteúdo a desenvolver.'), {
+      x: 0.7, y: 1.35, w: 12, h: 5.4,
+      fontSize: 13, color: '1E293B', valign: 'top',
+      breakLine: false, paraSpaceAfterPt: 8, fit: 'shrink'
     });
   }
 
@@ -558,6 +559,7 @@ async function generateTccPptx(project) {
 module.exports = {
   initTccProjects,
   saveProject,
+  generateTccResearch,
   generateTccDocx,
   generateTccPptx
 };
