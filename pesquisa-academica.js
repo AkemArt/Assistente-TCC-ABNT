@@ -611,6 +611,22 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
     .slice(0, Math.min(quantidade * 2, 20));
   }
 
+  // Se a OpenAlex respondeu, mas nenhum registro passou pela triagem mínima,
+  // tenta a busca bibliográfica alternativa. Resultado bruto não é sinônimo
+  // de fonte utilizável: DOI, título, autoria, ano e resumo continuam obrigatórios.
+  if (!candidatos.length && basePesquisa !== 'Crossref') {
+    console.warn('⚠️ OpenAlex retornou registros, mas nenhum passou pela triagem. Ativando busca alternativa no Crossref.');
+    try {
+      candidatos = await pesquisarCrossref(consultas, quantidade, termos, termosObjetivo);
+      basePesquisa = 'Crossref';
+    } catch (erroCrossref) {
+      throw new Error('OpenAlex não forneceu fontes aprovadas pela triagem (' +
+        (erros[0] || 'registros insuficientes ou incompletos') +
+        ') e a busca alternativa Crossref também falhou (' +
+        (erroCrossref.message || 'erro não identificado') + ').');
+    }
+  }
+
   const candidatosVerificados = [];
   // A busca alternativa já retorna metadados diretamente do Crossref;
   // quando a origem é OpenAlex, a conferência independente continua obrigatória.
