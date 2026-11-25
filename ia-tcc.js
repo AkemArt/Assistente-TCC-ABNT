@@ -80,7 +80,31 @@ function validarSecoes(dados) {
     'limitacoes',
     'verificacoes'
   ];
-  return obrigatorias.every(chave => Array.isArray(dados[chave]));
+  if (!dados || typeof dados !== 'object' || Array.isArray(dados)) return false;
+  return obrigatorias.every(chave =>
+    Array.isArray(dados[chave]) &&
+    dados[chave].length > 0 &&
+    dados[chave].every(paragrafo =>
+      typeof paragrafo === 'string' && paragrafo.trim().length >= 20
+    )
+  );
+}
+
+function contarPalavrasSecoes(secoes) {
+  const principais = [
+    'introducao',
+    'problemaPesquisa',
+    'objetivos',
+    'fundamentacaoTeorica',
+    'metodologia',
+    'discussao',
+    'conclusao'
+  ];
+  return principais.reduce((total, chave) => {
+    const texto = (secoes[chave] || []).join(' ');
+    const palavras = texto.trim().match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu) || [];
+    return total + palavras.length;
+  }, 0);
 }
 
 async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
@@ -114,7 +138,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '',
     'TEMA: ' + tema,
     'OBJETIVO INFORMADO: ' + (objetivo || 'Ainda não informado; não invente objetivo específico.'),
-    'EXTENSÃO SOLICITADA: aproximadamente ' + pageCount + ' páginas no documento final. Desenvolva o conteúdo proporcionalmente, com profundidade e sem repetição artificial. Use cerca de 250 palavras por página de texto principal como referência aproximada; a paginação real depende da diagramação, elementos pré-textuais e referências.',
+    'EXTENSÃO SOLICITADA: aproximadamente ' + pageCount + ' páginas de conteúdo principal. Produza como meta cerca de ' + (pageCount * 220) + ' palavras nas seções principais. A paginação real varia com a diagramação, elementos pré-textuais e referências; não prometa número exato de páginas.',
     '',
     'FONTES REAIS RECUPERADAS NA OPENALEX:',
     fontesText,
@@ -122,7 +146,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     'REGRAS INEGOCIÁVEIS DE EVIDÊNCIA:',
     '1. Use exclusivamente as fontes listadas para citações e afirmações atribuídas a estudos.',
     '2. Quando uma afirmação for sustentada por uma fonte, inclua o marcador exato [F1], [F2] etc. no fim da frase. O programa converterá esses marcadores em citações autor-data.',
-    '2A. Atenda à extensão com desenvolvimento substantivo: contextualização específica, conceitos, comparação crítica dos estudos, explicação metodológica e discussão. Não repita ideias nem invente conteúdo para preencher páginas.',
+    '2A. A extensão é requisito: distribua o volume entre as seções principais e aproxime-se da meta de palavras informada. Aprofunde definições, delimitações, relações entre conceitos, comparação crítica e justificativas metodológicas, sem repetir ideias.',
     '3. Nunca escreva nomes de pesquisadores famosos, teorias, estatísticas, resultados ou citações textuais que não estejam comprovados nos dados das fontes fornecidas.',
     '4. Não cite uma fonte sem resumo como evidência de conteúdo. Ela pode aparecer somente como referência localizada, sinalizando que o conteúdo precisa ser consultado.',
     '5. Não atribua ao artigo resultados que não estejam descritos no resumo. Não diga que leu o texto completo.',
@@ -136,13 +160,13 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     '',
     'FORMATO DE SAÍDA: responda somente com JSON válido, sem markdown, com exatamente estas chaves:',
     '{',
-    ' "introducao": ["3 a 5 parágrafos analíticos"],',
+    ' "introducao": ["parágrafos analíticos suficientes para a extensão solicitada"],',
     ' "problemaPesquisa": ["delimitação e pergunta de pesquisa"],',
     ' "objetivos": ["objetivo geral", "objetivos específicos"],',
-    ' "fundamentacaoTeorica": ["4 a 8 parágrafos com conceitos e citações [F#]"],',
-    ' "metodologia": ["2 a 4 parágrafos com proposta metodológica e ressalvas"],',
-    ' "discussao": ["2 a 4 parágrafos de síntese crítica das fontes"],',
-    ' "conclusao": ["2 a 3 parágrafos coerentes com as evidências e sem inventar resultados"],',
+    ' "fundamentacaoTeorica": ["parágrafos aprofundados, organizados por conceitos e citações [F#]"],',
+    ' "metodologia": ["parágrafos detalhados com proposta metodológica, justificativas e ressalvas"],',
+    ' "discussao": ["parágrafos de síntese crítica e comparação das fontes"],',
+    ' "conclusao": ["parágrafos coerentes com o objetivo, as fontes e as limitações, sem inventar resultados"],',
     ' "limitacoes": ["limitações concretas das fontes recuperadas"],',
     ' "verificacoes": ["itens que o estudante deve conferir nos textos originais"]',
     '}'
@@ -153,7 +177,8 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
     contents: prompt,
     config: {
       responseMimeType: 'application/json',
-      temperature: 0.35
+      temperature: 0.35,
+      maxOutputTokens: 32768
     }
   });
 
@@ -163,6 +188,18 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
   }
 
   const fontesCitadas = validarVinculoDeEvidencias(parsed, fontes);
+
+  const palavrasGeradas = contarPalavrasSecoes(parsed);
+  const palavrasEsperadas = Number(pageCount) * 220;
+  const minimoAceitavel = Math.ceil(palavrasEsperadas * 0.65);
+  if (palavrasGeradas < minimoAceitavel) {
+    throw new Error(
+      'O texto gerado ficou abaixo da extensão mínima: ' +
+      palavrasGeradas + ' palavras; mínimo esperado para ' + pageCount +
+      ' páginas: ' + minimoAceitavel +
+      '. Nenhum documento será apresentado como completo. Tente novamente ou reduza a extensão.'
+    );
+  }
 
   const secoes = {};
   for (const chave of Object.keys(parsed)) {
