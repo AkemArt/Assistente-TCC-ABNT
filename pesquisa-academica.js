@@ -207,8 +207,7 @@ function pontuarRelevancia(termos, titulo, resumo) {
 const TIPOS_PUBLICACAO_ACADEMICA = new Set([
   'article',
   'review',
-  'proceedings-article',
-  'book-chapter'
+  'proceedings-article'
 ]);
 
 function tipoPublicacaoAcademicaAceito(tipo) {
