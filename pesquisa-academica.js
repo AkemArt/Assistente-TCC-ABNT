@@ -63,6 +63,30 @@ async function lerCorpoLimitado(resposta, limite) {
   return Buffer.concat(partes, total);
 }
 
+async function fetchPdfComRedirecionamentosSeguros(urlInicial) {
+  let urlAtual = urlInicial;
+  const maxRedirecionamentos = 4;
+  for (let tentativa = 0; tentativa <= maxRedirecionamentos; tentativa += 1) {
+    if (!urlHttpsPublica(urlAtual)) {
+      throw new Error('Endereço de PDF ou redirecionamento não permitido.');
+    }
+    const resposta = await fetch(urlAtual, {
+      headers: { Accept: 'application/pdf,application/octet-stream;q=0.9' },
+      signal: AbortSignal.timeout(25000),
+      redirect: 'manual'
+    });
+    if ([301, 302, 303, 307, 308].includes(resposta.status)) {
+      const destino = resposta.headers.get('location');
+      if (!destino) throw new Error('Redirecionamento sem endereço de destino.');
+      if (tentativa === maxRedirecionamentos) throw new Error('Limite de redirecionamentos excedido.');
+      urlAtual = new URL(destino, urlAtual).toString();
+      continue;
+    }
+    return resposta;
+  }
+  throw new Error('Não foi possível acessar o PDF com segurança.');
+}
+
 async function obterTextoCompleto(fonte) {
   const url = fonte.pdfUrl;
   if (!urlHttpsPublica(url)) {
@@ -70,11 +94,7 @@ async function obterTextoCompleto(fonte) {
   }
 
   try {
-    const resposta = await fetch(url, {
-      headers: { Accept: 'application/pdf,application/octet-stream;q=0.9' },
-      signal: AbortSignal.timeout(25000),
-      redirect: 'follow'
-    });
+    const resposta = await fetchPdfComRedirecionamentosSeguros(url);
     if (!resposta.ok) {
       return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF indisponível (HTTP ' + resposta.status + ')' };
     }
