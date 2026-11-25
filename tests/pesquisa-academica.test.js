@@ -640,8 +640,8 @@ test('sem chave OpenAlex vai direto ao Crossref e se recupera de HTTP 400', asyn
     globalThis.fetch = async (url) => {
       urls.push(String(url));
       if (String(url).includes('api.openalex.org')) throw new Error('OpenAlex não deveria ser chamada sem chave');
-      if (String(url).includes('select=')) {
-        return { status: 400, ok: false, text: async () => 'Select qualifier specified with invalid fields', headers: { get: () => null } };
+      if (!String(url).includes('select=')) {
+        return { status: 400, ok: false, text: async () => 'Simulated invalid query parameter', headers: { get: () => null } };
       }
       return { status: 200, ok: true, json: async () => ({ message: { items: [item] } }), headers: { get: () => null } };
     };
