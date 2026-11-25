@@ -534,5 +534,10 @@ module.exports = {
   gerarRascunhoComPesquisa,
   formatarCitacao,
   ordenarFontesBibliografia,
-  aplicarSufixosAno
+  aplicarSufixosAno,
+  validarVinculoDeEvidencias,
+  validarEvidenciasTextuais,
+  validarSecoes,
+  contarPalavrasSecoes,
+  verificarSustentacaoSemantica
 };
