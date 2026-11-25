@@ -37,11 +37,20 @@ async function initTccProjects() {
       guild_id VARCHAR(64),
       student_name VARCHAR(150) NOT NULL,
       advisor_name VARCHAR(150) NOT NULL,
-      institution_course VARCHAR(200) NOT NULL,
+      institution_course VARCHAR(200) NOT NULL DEFAULT '',
       title TEXT NOT NULL,
-      page_count VARCHAR(80) NOT NULL,
+      page_count VARCHAR(80) NOT NULL DEFAULT '10',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS discord_user_id VARCHAR(32);
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS discord_username VARCHAR(100);
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS guild_id VARCHAR(64);
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS student_name VARCHAR(150);
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS advisor_name VARCHAR(150);
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS institution_course VARCHAR(200);
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS title TEXT;
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS page_count VARCHAR(80);
+    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
 
   console.log('📚 Tabela de projetos de TCC (tcc_projects) verificada.');
@@ -253,7 +262,7 @@ Regras obrigatórias:
 }`;
 
   try {
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const modelName = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
     const response = await ai.models.generateContent({
       model: modelName,
       contents: prompt,
