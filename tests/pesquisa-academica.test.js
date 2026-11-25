@@ -6,6 +6,7 @@ const {
   pontuarRelevancia,
   formatarReferenciaABNT
 } = require('../pesquisa-academica');
+const { formatarCitacao } = require('../ia-tcc');
 
 test('reconstrói resumo a partir do índice invertido do OpenAlex', () => {
   const resumo = extrairResumo({
@@ -57,4 +58,32 @@ test('formata referência com DOI e links recuperados sem inventar dados', () =>
   assert.match(referencia, /DOI: 10\.1234\/exemplo/);
   assert.match(referencia, /https:\/\/example\.org\/article/);
   assert.match(referencia, /https:\/\/example\.org\/article\.pdf/);
+});
+
+test('formata citações autor-data segundo NBR 10520:2023', () => {
+  assert.equal(
+    formatarCitacao({ autores: ['Ada Lovelace'], ano: 2024 }),
+    '(Lovelace, 2024)'
+  );
+  assert.equal(
+    formatarCitacao({ autores: ['Ada Lovelace', 'Grace Hopper'], ano: 2024 }),
+    '(Lovelace; Hopper, 2024)'
+  );
+  assert.equal(
+    formatarCitacao({ autores: ['Ada Lovelace', 'Grace Hopper', 'Alan Turing'], ano: 2024 }),
+    '(Lovelace; Hopper; Turing, 2024)'
+  );
+  assert.equal(
+    formatarCitacao({ autores: ['Ada Lovelace', 'Grace Hopper', 'Alan Turing', 'Katherine Johnson'], ano: 2024 }),
+    '(Lovelace et al., 2024)'
+  );
+});
+
+test('distingue publicações do mesmo autor no mesmo ano com letras', () => {
+  const fontes = [
+    { openAlexId: 'W2', titulo: 'Título B', autores: ['Ada Lovelace'], ano: 2024 },
+    { openAlexId: 'W1', titulo: 'Título A', autores: ['Ada Lovelace'], ano: 2024 }
+  ];
+  assert.equal(formatarCitacao(fontes[1], fontes), '(Lovelace, 2024a)');
+  assert.equal(formatarCitacao(fontes[0], fontes), '(Lovelace, 2024b)');
 });
