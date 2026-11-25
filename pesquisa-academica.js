@@ -321,7 +321,7 @@ function mapearTrabalho(trabalho, termosTema, termosObjetivo = []) {
     (melhorLocalAberto && melhorLocalAberto.source && melhorLocalAberto.source.display_name) || null;
 
   return {
-    openAlexId: trabalho.id || null,
+    fonteDados: 'OpenAlex',\n    openAlexId: trabalho.id || null,
     versaoAcessoAberto: melhorLocalAberto && melhorLocalAberto.version || null,
     urlPaginaArtigo: urlHttpsPublica(melhorLocalAberto && melhorLocalAberto.landing_page_url)
       ? melhorLocalAberto.landing_page_url
@@ -433,6 +433,123 @@ async function verificarNoCrossref(fonte) {
   }
 }
 
+
+function limparResumoCrossref(valor) {
+  if (!valor) return null;
+  const texto = String(valor)
+    .replace(/<\\/?(?:jats:[\\w-]+|\\w+)[^>]*>/gi, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/\\s+/g, ' ')
+    .trim();
+  return texto.length >= 80 ? texto : null;
+}
+
+function mapearRegistroCrossref(registro, termosTema, termosObjetivo = []) {
+  const titulo = Array.isArray(registro.title) ? String(registro.title[0] || '').trim() : '';
+  const resumo = limparResumoCrossref(registro.abstract);
+  const autores = (registro.author || [])
+    .map(a => [a.given, a.family].filter(Boolean).join(' ').trim())
+    .filter(Boolean);
+  const data = [registro.published, registro['published-print'], registro['published-online'], registro.issued]
+    .find(d => d && d['date-parts'] && d['date-parts'][0] && Number(d['date-parts'][0][0]));
+  const ano = data ? Number(data['date-parts'][0][0]) : null;
+  const doi = registro.DOI || null;
+  const link = doi ? 'https://doi.org/' + normalizarDoi(doi) : (registro.URL || null);
+  const linkPdf = (registro.link || []).find(item =>
+    /pdf/i.test(String(item['content-type'] || '')) && urlHttpsPublica(item.URL)
+  );
+  const tipoCrossref = String(registro.type || '').toLowerCase();
+  const tipo = tipoCrossref === 'journal-article' ? 'article' :
+    tipoCrossref === 'proceedings-article' ? 'proceedings-article' :
+    tipoCrossref === 'journal' ? 'review' : tipoCrossref;
+  const relevanciaTema = pontuarRelevancia(termosTema, titulo, resumo || '');
+  const relevanciaObjetivo = termosObjetivo.length
+    ? pontuarRelevancia(termosObjetivo, titulo, resumo || '')
+    : null;
+  const relevancia = relevanciaObjetivo === null
+    ? relevanciaTema
+    : Math.round(relevanciaTema * 0.7 + relevanciaObjetivo * 0.3);
+  const paginas = String(registro.page || '').match(/^(\\d+)\\s*[-–]\\s*(\\d+)$/);
+  return {
+    fonteDados: 'Crossref',
+    openAlexId: null,
+    versaoAcessoAberto: null,
+    urlPaginaArtigo: urlHttpsPublica(link) ? link : null,
+    pdfUrl: linkPdf ? linkPdf.URL : null,
+    titulo,
+    autores,
+    ano,
+    revista: Array.isArray(registro['container-title']) ? registro['container-title'][0] || null : null,
+    volume: registro.volume || null,
+    numero: registro.issue || null,
+    paginaInicial: paginas ? paginas[1] : (registro.page || null),
+    paginaFinal: paginas ? paginas[2] : null,
+    doi,
+    link: urlHttpsPublica(link) ? link : null,
+    resumo,
+    citacoes: Number.isFinite(Number(registro['is-referenced-by-count'])) ? Number(registro['is-referenced-by-count']) : null,
+    tipo,
+    idioma: registro.language || null,
+    acessoAberto: null,
+    pontuacaoRelevancia: relevancia,
+    pontuacaoTema: relevanciaTema,
+    pontuacaoObjetivo: relevanciaObjetivo,
+    relevancia: relevancia >= 55 ? 'Mais relevante' : relevancia >= 25 ? 'Precisa de análise' : 'Relevância incerta',
+    verificacaoCrossref: 'Metadados obtidos diretamente do Crossref',
+    crossrefUrl: registro.URL || link
+  };
+}
+
+async function pesquisarCrossref(consultas, quantidade, termosTema, termosObjetivo) {
+  const encontrados = [];
+  const consultasUnicas = [...new Set(consultas)].slice(0, 2);
+  for (const consulta of consultasUnicas) {
+    const params = new URLSearchParams({
+      'query.bibliographic': consulta,
+      rows: String(Math.min(quantidade * 4, 40)),
+      select: 'DOI,title,author,published,published-print,published-online,issued,type,container-title,volume,issue,page,URL,link,abstract,is-referenced-by-count,language'
+    });
+    const resposta = await fetch('https://api.crossref.org/works?' + params.toString(), {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'Assistente-TCC-ABNT/1.2 (academic research fallback; mailto:contato@example.org)'
+      },
+      signal: AbortSignal.timeout(25000)
+    });
+    if (!resposta.ok) {
+      throw new Error('Crossref retornou HTTP ' + resposta.status + ' na busca alternativa.');
+    }
+    const dados = await resposta.json();
+    const itens = dados && dados.message && Array.isArray(dados.message.items) ? dados.message.items : [];
+    for (const item of itens) {
+      const mapeado = mapearRegistroCrossref(item, termosTema, termosObjetivo);
+      if (
+        tipoPublicacaoAcademicaAceito(mapeado.tipo) &&
+        mapeado.pontuacaoRelevancia >= 15 &&
+        mapeado.titulo && mapeado.autores.length && mapeado.ano &&
+        mapeado.doi && mapeado.link && mapeado.resumo
+      ) encontrados.push(mapeado);
+    }
+    await aguardar(300);
+  }
+  const unicos = new Map();
+  for (const item of encontrados) {
+    const chave = normalizarDoi(item.doi) || item.titulo.toLowerCase();
+    if (!unicos.has(chave) || item.pontuacaoRelevancia > unicos.get(chave).pontuacaoRelevancia) {
+      unicos.set(chave, item);
+    }
+  }
+  return [...unicos.values()]
+    .sort((a, b) => b.pontuacaoRelevancia - a.pontuacaoRelevancia || (b.ano || 0) - (a.ano || 0))
+    .slice(0, Math.min(quantidade * 2, 20));
+}
+
 async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
   if (!tema || !String(tema).trim()) {
     throw new Error('Informe um tema para pesquisar.');
@@ -460,20 +577,29 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
     }
   }
 
+  let candidatos;
+  let basePesquisa = 'OpenAlex';
   if (!trabalhosBrutos.length) {
-    throw new Error('A pesquisa acadêmica não retornou resultados. ' + (erros[0] || 'Tente delimitar o tema com outras palavras-chave.'));
-  }
-
-  const unicos = new Map();
-  for (const trabalho of trabalhosBrutos) {
-    const mapeado = mapearTrabalho(trabalho, termos, termosObjetivo);
-    const chave = mapeado.doi || mapeado.openAlexId || mapeado.titulo.toLowerCase();
-    if (!unicos.has(chave) || mapeado.pontuacaoRelevancia > unicos.get(chave).pontuacaoRelevancia) {
-      unicos.set(chave, mapeado);
+    console.warn('⚠️ OpenAlex indisponível; ativando busca alternativa no Crossref:', erros[0] || 'sem resultados');
+    basePesquisa = 'Crossref';
+    try {
+      candidatos = await pesquisarCrossref(consultas, quantidade, termos, termosObjetivo);
+    } catch (erroCrossref) {
+      throw new Error(
+        'OpenAlex indisponível (' + (erros[0] || 'sem resultados') +
+        ') e a busca alternativa Crossref também falhou (' + (erroCrossref.message || 'erro não identificado') + ').'
+      );
     }
-  }
-
-  const candidatos = [...unicos.values()]
+  } else {
+    const unicos = new Map();
+    for (const trabalho of trabalhosBrutos) {
+      const mapeado = mapearTrabalho(trabalho, termos, termosObjetivo);
+      const chave = mapeado.doi || mapeado.openAlexId || mapeado.titulo.toLowerCase();
+      if (!unicos.has(chave) || mapeado.pontuacaoRelevancia > unicos.get(chave).pontuacaoRelevancia) {
+        unicos.set(chave, mapeado);
+      }
+    }
+    candidatos = [...unicos.values()]
     .filter(item =>
       tipoPublicacaoAcademicaAceito(item.tipo) &&
       item.pontuacaoRelevancia >= 15 &&
@@ -481,15 +607,22 @@ async function pesquisarTrabalhos(tema, limite = 8, objetivo = '') {
     )
     .sort((a, b) => b.pontuacaoRelevancia - a.pontuacaoRelevancia)
     .slice(0, Math.min(quantidade * 2, 20));
+  }
 
   const candidatosVerificados = [];
-  // Verifica os metadados em sequência para evitar rajadas no Crossref.
+  // A busca alternativa já retorna metadados diretamente do Crossref;
+  // quando a origem é OpenAlex, a conferência independente continua obrigatória.
   for (let i = 0; i < candidatos.length; i += 1) {
-    candidatosVerificados.push(await verificarNoCrossref(candidatos[i]));
+    candidatosVerificados.push(candidatos[i].fonteDados === 'Crossref'
+      ? candidatos[i]
+      : await verificarNoCrossref(candidatos[i]));
     if (i < candidatos.length - 1) await aguardar(200);
   }
   const selecionados = candidatosVerificados
-    .filter(item => item.verificacaoCrossref === 'Confirmado no Crossref')
+    .filter(item =>
+      item.verificacaoCrossref === 'Confirmado no Crossref' ||
+      item.verificacaoCrossref === 'Metadados obtidos diretamente do Crossref'
+    )
     .sort((a, b) => {
       if (b.pontuacaoRelevancia !== a.pontuacaoRelevancia) {
         return b.pontuacaoRelevancia - a.pontuacaoRelevancia;
