@@ -12,6 +12,18 @@ const {
 } = require('docx');
 const PptxGenJS = require('pptxgenjs');
 
+function urlHttpsValida(valor) {
+  try {
+    return new URL(valor).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function normalizarDoi(valor) {
+  return String(valor || '').replace(/^https?:\/\/(dx\.)?doi\.org\//i, '').replace(/^doi:/i, '');
+}
+
 async function initTccProjects() {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL não configurado.');
@@ -262,8 +274,8 @@ async function generateTccDocx(project, pesquisa = null) {
       referencia.includes(item.titulo) || item.idFonte === 'F' + (i + 1)
     );
     const urlArtigo = fonte && (fonte.urlPaginaArtigo || fonte.link ||
-      (fonte.doi ? 'https://doi.org/' + String(fonte.doi).replace(/^https?:\\/\\/doi\\.org\\//i, '') : null));
-    if (urlArtigo && /^https:\\/\\//i.test(urlArtigo)) {
+      (fonte.doi ? 'https://doi.org/' + normalizarDoi(fonte.doi) : null));
+    if (urlArtigo && urlHttpsValida(urlArtigo)) {
       children.push(new Paragraph({
         indent: { left: 360 },
         spacing: { after: 180 },
@@ -273,7 +285,7 @@ async function generateTccDocx(project, pesquisa = null) {
         })]
       }));
     }
-    if (fonte && fonte.pdfUrl && /^https:\\/\\//i.test(fonte.pdfUrl)) {
+    if (fonte && fonte.pdfUrl && urlHttpsValida(fonte.pdfUrl)) {
       children.push(new Paragraph({
         indent: { left: 360 },
         spacing: { after: 180 },
@@ -379,13 +391,13 @@ async function generateTccPptx(project, pesquisa = null) {
       fontSize: 14, color: '334155', valign: 'top'
     });
     const urlArtigo = fonte.urlPaginaArtigo || fonte.link ||
-      (fonte.doi ? 'https://doi.org/' + String(fonte.doi).replace(/^https?:\\/\\/doi\\.org\\//i, '') : null);
-    if (urlArtigo && /^https:\\/\\//i.test(urlArtigo)) {
+      (fonte.doi ? 'https://doi.org/' + normalizarDoi(fonte.doi) : null);
+    if (urlArtigo && urlHttpsValida(urlArtigo)) {
       slide.addText([{ text: 'Abrir página oficial do artigo / DOI', options: { hyperlink: { url: urlArtigo, tooltip: 'Abrir artigo ou registro DOI' }, color: '0563C1', underline: { color: '0563C1' } } }], {
         x: 0.8, y: 3.8, w: 11.7, h: 0.45, fontSize: 16
       });
     }
-    if (fonte.pdfUrl && /^https:\\/\\//i.test(fonte.pdfUrl)) {
+    if (fonte.pdfUrl && urlHttpsValida(fonte.pdfUrl)) {
       slide.addText([{ text: 'Abrir texto completo em PDF (acesso aberto)', options: { hyperlink: { url: fonte.pdfUrl, tooltip: 'Abrir PDF do artigo' }, color: '0563C1', underline: { color: '0563C1' } } }], {
         x: 0.8, y: 4.45, w: 11.7, h: 0.45, fontSize: 16
       });
