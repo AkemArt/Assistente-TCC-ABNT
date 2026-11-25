@@ -622,7 +622,7 @@ test('artigo em inglês é pontuado pelas palavras-chave geradas pela IA', () =>
   assert.ok(pontuarMelhorGrupo(termosPt, [ingles], titulo, '') >= 60);
 });
 
-test('sem chave tenta OpenAlex e usa Crossref quando recebe HTTP 429 e depois 400', async () => {
+test('sem chave pula OpenAlex e usa Crossref diretamente, com retry para HTTP 400', async () => {
   const fetchOriginal = globalThis.fetch;
   const chaveOriginal = process.env.OPENALEX_API_KEY;
   delete process.env.OPENALEX_API_KEY;
@@ -651,7 +651,7 @@ test('sem chave tenta OpenAlex e usa Crossref quando recebe HTTP 429 e depois 40
     const fontes = await pesquisarTrabalhos('educação financeira', 3, '', { consultas: ['financial literacy savings', 'educação financeira poupança'] });
     assert.equal(fontes.length, 1);
     assert.equal(fontes[0].fonteDados, 'Crossref');
-    assert.ok(urls.some(u => u.includes('openalex')));
+    assert.equal(urls.some(u => u.includes('api.openalex.org')), false);
     assert.ok(urls.some(u => u.includes('select=')) && urls.some(u => !u.includes('select=')));
   } finally {
     globalThis.fetch = fetchOriginal;
@@ -687,6 +687,8 @@ test('troca de modelo Gemini: reconhece 404 e respeita GEMINI_MODEL com vários 
   assert.equal(erroPermiteFallbackModelo({ status: 404 }), true);
   assert.equal(erroPermiteFallbackModelo(new Error('models/x is no longer available')), true);
   assert.equal(erroPermiteFallbackModelo(new Error('HTTP 429 RESOURCE_EXHAUSTED')), true);
+  assert.equal(erroPermiteFallbackModelo(new Error('You exceeded your current quota, please check your plan and billing details')), false);
+  assert.equal(erroPermiteFallbackModelo({ status: 'RESOURCE_EXHAUSTED', message: 'quota exceeded' }), false);
   assert.equal(erroPermiteFallbackModelo({ status: 500 }), false);
   const original = process.env.GEMINI_MODEL;
   process.env.GEMINI_MODEL = 'modelo-a, modelo-b';
