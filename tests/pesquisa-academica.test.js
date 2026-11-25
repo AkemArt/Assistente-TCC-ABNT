@@ -533,3 +533,21 @@ test('bloqueia redirecionamento de PDF para endereço local', async () => {
     globalThis.fetch = fetchOriginal;
   }
 });
+
+test('não mantém PDF HTTP ou privado na referência bibliográfica', () => {
+  const fonte = mapearTrabalho({
+    id: 'https://openalex.org/W999',
+    title: 'A study about secure research links',
+    authorships: [{ author: { display_name: 'Ada Lovelace' } }],
+    abstract_inverted_index: { secure: [0], research: [1], links: [2] },
+    doi: 'https://doi.org/10.1234/secure',
+    best_oa_location: {
+      landing_page_url: 'https://example.org/article',
+      pdf_url: 'http://192.168.1.10/private.pdf'
+    },
+    primary_location: { source: { display_name: 'Journal of Examples' } },
+    publication_year: 2024,
+    biblio: {}
+  }, ['secure', 'research', 'links']);
+  assert.equal(fonte.pdfUrl, null);
+});
