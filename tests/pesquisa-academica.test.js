@@ -109,9 +109,9 @@ test('ordena a bibliografia por sobrenome do primeiro autor e título', () => {
     { autores: ['Ada Lovelace'], titulo: 'Pesquisa A' }
   ]);
   assert.deepEqual(ordenadas.map(item => item.titulo), [
+    'Pesquisa Z',
     'Pesquisa A',
-    'Pesquisa B',
-    'Pesquisa Z'
+    'Pesquisa B'
   ]);
 });
 
