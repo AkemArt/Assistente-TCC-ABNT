@@ -96,9 +96,16 @@ async function processTccProject(interaction, project, totalLabel) {
     console.error(`⚠️ [${totalLabel}] Falha ao salvar no banco, prosseguindo com arquivos:`, describeError(dbErr));
   }
 
+  // Uma única pesquisa e uma única redação servem de base aos dois documentos.
+  const pesquisa = await withTimeout(
+    tccProjects.generateTccResearch(project),
+    120000,
+    `${totalLabel}_academic_research`
+  );
+
   const [docxBuffer, pptxBuffer] = await Promise.all([
-    tccProjects.generateTccDocx(project),
-    tccProjects.generateTccPptx(project)
+    tccProjects.generateTccDocx(project, pesquisa),
+    tccProjects.generateTccPptx(project, pesquisa)
   ]);
 
   const rawDocx = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer);
