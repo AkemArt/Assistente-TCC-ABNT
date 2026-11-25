@@ -47,15 +47,16 @@ function validarSecoes(dados) {
 }
 
 async function gerarTextoTCC({ tema, objetivo, fontes }) {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY não configurada. A geração acadêmica foi interrompida para não produzir texto genérico sem IA.');
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY ou GOOGLE_API_KEY não configurada. A geração acadêmica foi interrompida para não produzir texto genérico sem IA.');
   }
   if (!tema || !String(tema).trim()) throw new Error('Informe o tema do TCC.');
   if (!Array.isArray(fontes) || !fontes.length) {
     throw new Error('Nenhuma fonte acadêmica foi localizada. Não será gerada uma redação com referências presumidas.');
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
   const fontesComResumo = fontes.filter(f => f.resumo && f.resumo.trim());
   const fontesText = fontes.map(fonte => {
     return [
