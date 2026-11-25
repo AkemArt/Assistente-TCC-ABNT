@@ -43,15 +43,15 @@ function validarVinculoDeEvidencias(dados, fontes) {
     const paragrafos = Array.isArray(dados[secao]) ? dados[secao] : [];
     for (const paragrafo of paragrafos) {
       const texto = String(paragrafo || '');
-      const marcadores = texto.match(/\\[F\\d+\\]/g) || [];
-      const contemCitacaoAutorData = /\\([^)]{1,100}\\b(?:19|20)\\d{2}[a-z]?\\s*\\)/i.test(texto);
+      const marcadores = texto.match(/\[F\d+\]/g) || [];
+      const contemCitacaoAutorData = /\([^)]{1,100}\b(?:19|20)\d{2}[a-z]?\s*\)/i.test(texto);
 
       if (contemCitacaoAutorData && marcadores.length === 0) {
         throw new Error('Foi encontrada uma citação autor-data sem vínculo com uma fonte recuperada. O texto foi bloqueado para evitar referência inventada.');
       }
 
       for (const marcador of marcadores) {
-        const numero = Number(marcador.match(/\\d+/)[0]);
+        const numero = Number(marcador.match(/\d+/)[0]);
         const id = 'F' + numero;
         if (!idsValidos.has(id)) {
           throw new Error('A IA citou uma fonte inexistente (' + marcador + '). O texto foi bloqueado.');
