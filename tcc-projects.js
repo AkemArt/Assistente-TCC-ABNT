@@ -32,84 +32,116 @@ async function initTccProjects() {
   await db.query(`
     CREATE TABLE IF NOT EXISTS tcc_projects (
       id BIGSERIAL PRIMARY KEY,
-      discord_user_id VARCHAR(32) NOT NULL,
-      discord_username VARCHAR(100) NOT NULL,
+      discord_user_id VARCHAR(32) NOT NULL DEFAULT '',
+      discord_username VARCHAR(100) NOT NULL DEFAULT 'aluno',
       guild_id VARCHAR(64),
-      student_name VARCHAR(150) NOT NULL,
-      advisor_name VARCHAR(150) NOT NULL,
+      student_name VARCHAR(150) NOT NULL DEFAULT '',
+      advisor_name VARCHAR(150) NOT NULL DEFAULT '',
       institution VARCHAR(200) NOT NULL DEFAULT '',
       institution_course VARCHAR(200) NOT NULL DEFAULT '',
-      title TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
       page_count VARCHAR(80) NOT NULL DEFAULT '10',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS discord_user_id VARCHAR(32);
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS discord_username VARCHAR(100);
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS guild_id VARCHAR(64);
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS student_name VARCHAR(150);
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS advisor_name VARCHAR(150);
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS institution VARCHAR(200);
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS institution_course VARCHAR(200);
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS title TEXT;
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS page_count VARCHAR(80);
-    ALTER TABLE tcc_projects ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
-  `);
-
-  await db.query(`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'tcc_projects'
-          AND column_name = 'institution'
-      ) THEN
-        ALTER TABLE tcc_projects ALTER COLUMN institution DROP NOT NULL;
-      END IF;
-
-      IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'tcc_projects'
-          AND column_name = 'institution_course'
-      ) THEN
-        ALTER TABLE tcc_projects ALTER COLUMN institution_course DROP NOT NULL;
-      END IF;
-    END
-    $$;
   `);
 
   console.log('📚 Tabela de projetos de TCC (tcc_projects) verificada.');
 }
 
 async function saveProject(project) {
+  await initTccProjects().catch(() => {});
+
   const institutionCourse =
     project.courseAndInstitution ||
     [project.course, project.institution].filter(Boolean).join(' - ') ||
     'Curso / Instituição';
   const institutionValue = String(project.institution || institutionCourse).slice(0, 200);
+  const studentName = String(project.studentName || '').slice(0, 150);
+  const advisorName = String(project.advisorName || '').slice(0, 150);
+  const title = String(project.title || '').slice(0, 1000);
+  const pageCount = String(project.pageCount || project.focusNote || '10').slice(0, 80);
+  const userId = String(project.userId || '');
+  const username = String(project.username || 'aluno').slice(0, 100);
+  const guildId = project.guildId ? String(project.guildId) : null;
 
-  const res = await db.query(
-    `INSERT INTO tcc_projects
-      (discord_user_id, discord_username, guild_id, student_name, advisor_name, institution, institution_course, title, page_count)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     RETURNING id, created_at`,
-    [
-      String(project.userId),
-      String(project.username || 'aluno').slice(0, 100),
-      project.guildId ? String(project.guildId) : null,
-      String(project.studentName).slice(0, 150),
-      String(project.advisorName).slice(0, 150),
-      institutionValue,
-      String(institutionCourse).slice(0, 200),
-      String(project.title).slice(0, 1000),
-      String(project.pageCount || project.focusNote || '10').slice(0, 80)
-    ]
-  );
+  // Descobre as colunas reais da tabela para preencher qualquer NOT NULL sem default
+  const colsRes = await db.query(`
+    SELECT column_name, data_type, is_nullable, column_default
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'tcc_projects'
+  `);
 
-  return res.rows[0];
+  const knownValues = {
+    discord_user_id: userId,
+    user_id: userId,
+    discord_username: username,
+    username,
+    guild_id: guildId,
+    student_name: studentName,
+    aluno: studentName,
+    advisor_name: advisorName,
+    orientador: advisorName,
+    institution: institutionValue,
+    instituicao: institutionValue,
+    course: institutionCourse,
+    curso: institutionCourse,
+    institution_course: institutionCourse,
+    curso_instituicao: institutionCourse,
+    title,
+    titulo: title,
+    tema: title,
+    page_count: pageCount,
+    paginas: pageCount,
+    folhas: pageCount
+  };
+
+  const columnsToInsert = [];
+  const params = [];
+
+  for (const col of colsRes.rows) {
+    const name = col.column_name;
+    if (name === 'id' || name === 'created_at' || name === 'updated_at') continue;
+
+    if (Object.prototype.hasOwnProperty.call(knownValues, name)) {
+      const val = knownValues[name];
+      if (val !== null && val !== undefined) {
+        columnsToInsert.push(name);
+        params.push(val);
+        continue;
+      }
+    }
+
+    // Se a coluna é NOT NULL e não tem default, fornece um valor seguro pelo tipo
+    if (col.is_nullable === 'NO' && !col.column_default) {
+      if (col.data_type.includes('int') || col.data_type.includes('numeric') || col.data_type.includes('decimal')) {
+        columnsToInsert.push(name);
+        params.push(0);
+      } else if (col.data_type === 'boolean') {
+        columnsToInsert.push(name);
+        params.push(false);
+      } else if (col.data_type.includes('timestamp') || col.data_type === 'date') {
+        columnsToInsert.push(name);
+        params.push(new Date());
+      } else {
+        columnsToInsert.push(name);
+        params.push('');
+      }
+    }
+  }
+
+  if (columnsToInsert.length === 0) {
+    return { id: 'sem-id' };
+  }
+
+  const placeholders = columnsToInsert.map((_, idx) => `$${idx + 1}`).join(', ');
+  const sql = `
+    INSERT INTO tcc_projects (${columnsToInsert.join(', ')})
+    VALUES (${placeholders})
+    RETURNING id
+  `;
+
+  const res = await db.query(sql, params);
+  return res.rows[0] || { id: 'novo' };
 }
 
 function reconstructAbstract(invertedIndex) {
@@ -320,7 +352,7 @@ Regras obrigatórias:
     } catch (err) {
       const isUnavailable = err?.status === 503 || String(err?.message || '').includes('503');
       if (isUnavailable && attempt < 2) {
-        await new Promise(resolve => setTimeout(resolve, 1200));
+        await new Promise(resolve => setTimeout(resolve, 1000));
         continue;
       }
       console.warn('⚠️ Falha na geração por IA do corpo do TCC, usando redação adaptativa:', err?.message || err);
