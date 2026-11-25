@@ -302,7 +302,8 @@ async function verificarNoCrossref(fonte) {
     }).filter(Boolean);
     const autoresCorrespondem = sobrenomesOpenAlex.length > 0 &&
       autoresCrossref.length > 0 &&
-      sobrenomesOpenAlex.every(nome => autoresCrossref.includes(nome));
+      sobrenomesOpenAlex.length === autoresCrossref.length &&
+      sobrenomesOpenAlex.every((nome, indice) => nome === autoresCrossref[indice]);
     if (!autoresCorrespondem) {
       return { ...fonte, verificacaoCrossref: 'Divergência de autoria no Crossref' };
     }
