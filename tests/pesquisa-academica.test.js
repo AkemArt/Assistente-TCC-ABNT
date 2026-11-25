@@ -10,7 +10,11 @@ const {
 const {
   formatarCitacao,
   ordenarFontesBibliografia,
-  aplicarSufixosAno
+  aplicarSufixosAno,
+  validarVinculoDeEvidencias,
+  validarEvidenciasTextuais,
+  validarSecoes,
+  contarPalavrasSecoes
 } = require('../ia-tcc');
 
 test('reconstrói resumo a partir do índice invertido do OpenAlex', () => {
@@ -200,4 +204,90 @@ test('aplica sufixos de ano também nas referências bibliográficas', () => {
     { openAlexId: 'W1', autores: ['Ada Lovelace'], titulo: 'Título A', ano: 2024 }
   ]);
   assert.deepEqual(fontes.map(item => item.anoReferencia), ['2024a', '2024b']);
+});
+
+test('bloqueia parágrafo com citação sem fonte existente', () => {
+  const dados = {
+    introducao: ['Uma afirmação acadêmica [F2] que precisa de fonte.'],
+    problemaPesquisa: [], objetivos: [], fundamentacaoTeorica: [],
+    metodologia: [], discussao: [], conclusao: []
+  };
+  assert.throws(
+    () => validarVinculoDeEvidencias(dados, [{ idFonte: 'F1' }]),
+    /fonte inexistente/
+  );
+});
+
+test('exige evidência literal para cada fonte citada no parágrafo', () => {
+  const fonte = {
+    idFonte: 'F1',
+    titulo: 'Estudo sobre aprendizagem',
+    resumo: 'This study examines machine learning in education and reports improved student outcomes in the observed sample.',
+    statusTextoCompleto: 'Somente resumo disponível'
+  };
+  const paragrafo = 'O estudo relata melhora nos resultados dos estudantes observados [F1].';
+  const dados = {
+    introducao: [paragrafo],
+    problemaPesquisa: ['Problema de pesquisa suficientemente descrito.'],
+    objetivos: ['Objetivo geral suficientemente descrito.'],
+    fundamentacaoTeorica: ['Fundamentação teórica suficientemente descrita.'],
+    metodologia: ['Metodologia proposta suficientemente descrita.'],
+    discussao: ['Discussão suficientemente descrita.'],
+    conclusao: ['Conclusão suficientemente descrita.'],
+    limitacoes: ['Limitação suficientemente descrita.'],
+    verificacoes: ['Verificação suficientemente descrita.'],
+    evidencias: [{
+      paragrafo,
+      fonteId: 'F1',
+      trecho: 'reports improved student outcomes in the observed sample'
+    }]
+  };
+  assert.deepEqual(validarVinculoDeEvidencias(dados, [fonte]), new Set(['F1']));
+  const evidencias = validarEvidenciasTextuais(dados, [fonte]);
+  assert.equal(evidencias.length, 1);
+  assert.equal(evidencias[0].fonteId, 'F1');
+});
+
+test('rejeita trecho de evidência que não existe no texto recuperado', () => {
+  const fonte = {
+    idFonte: 'F1',
+    titulo: 'Estudo',
+    resumo: 'The study examines a small sample and reports descriptive observations.'
+  };
+  const paragrafo = 'A pesquisa comprova um efeito específico [F1].';
+  const dados = {
+    introducao: [paragrafo],
+    problemaPesquisa: [], objetivos: [], fundamentacaoTeorica: [],
+    metodologia: [], discussao: [], conclusao: [],
+    evidencias: [{
+      paragrafo,
+      fonteId: 'F1',
+      trecho: 'The intervention caused a significant improvement across all populations'
+    }]
+  };
+  assert.throws(
+    () => validarEvidenciasTextuais(dados, [fonte]),
+    /não foi localizado/
+  );
+});
+
+test('valida a estrutura acadêmica e calcula a extensão das seções principais', () => {
+  const dados = {
+    introducao: ['Introdução suficientemente detalhada para teste.'],
+    problemaPesquisa: ['Problema de pesquisa suficientemente detalhado.'],
+    objetivos: ['Objetivo geral suficientemente detalhado.'],
+    fundamentacaoTeorica: ['Fundamentação suficientemente detalhada.'],
+    metodologia: ['Metodologia suficientemente detalhada.'],
+    discussao: ['Discussão suficientemente detalhada.'],
+    conclusao: ['Conclusão suficientemente detalhada.'],
+    limitacoes: ['Limitação suficientemente detalhada.'],
+    verificacoes: ['Verificação suficientemente detalhada.'],
+    evidencias: [{ paragrafo: 'Parágrafo', fonteId: 'F1', trecho: 'Trecho' }]
+  };
+  assert.equal(validarSecoes(dados), true);
+  assert.equal(validarSecoes({ ...dados, secaoExtra: ['Campo não permitido.'] }), false);
+  assert.equal(contarPalavrasSecoes({
+    introducao: ['um dois três'],
+    fundamentacaoTeorica: ['quatro cinco']
+  }), 5);
 });
