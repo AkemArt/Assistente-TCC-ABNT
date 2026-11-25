@@ -271,7 +271,7 @@ async function generateTccDocx(project, pesquisa = null) {
       spaceAfter: 100
     }));
     const fonte = (resultadoPesquisa.fontes || []).find(item =>
-      referencia.includes(item.titulo) || item.idFonte === 'F' + (i + 1)
+      item.titulo && referencia.includes(item.titulo)
     );
     const urlArtigo = fonte && (fonte.urlPaginaArtigo || fonte.link ||
       (fonte.doi ? 'https://doi.org/' + normalizarDoi(fonte.doi) : null));
