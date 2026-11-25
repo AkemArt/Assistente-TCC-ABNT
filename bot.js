@@ -49,12 +49,17 @@ const cooldown = new Map();
 const pendingTccProjects = new Map();
 
 function describeError(error) {
+  // URLs de webhooks do Discord podem conter tokens de interação.
+  // Nunca registrar URL completa nem parâmetros de requisição em logs.
+  const urlPresente = Boolean(error?.url);
   return {
-    message: error?.message || String(error),
+    message: String(error?.message || error || 'Erro sem mensagem')
+      .replace(/https?:\\/\\/[^\\s"'<>]+/gi, '[URL REDIGIDA]')
+      .replace(/(token|authorization|webhook)[=: ]+[^\\s,;]+/gi, '$1=[REDACTED]'),
     code: error?.code,
     status: error?.status,
     method: error?.method,
-    url: error?.url
+    url: urlPresente ? '[URL REDIGIDA]' : undefined
   };
 }
 
