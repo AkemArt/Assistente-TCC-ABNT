@@ -78,6 +78,36 @@ function normalizarParaComparacao(texto) {
     .replace(/\s+/g, ' ');
 }
 
+function selecionarTrechosRelevantes(texto, tema, objetivo, limite = 12000) {
+  const conteudo = String(texto || '');
+  if (conteudo.length <= limite) return conteudo;
+  const termos = [...new Set(
+    (normalizarParaComparacao(String(tema || '') + ' ' + String(objetivo || '')).match(/[\p{L}\p{N}]{4,}/gu) || [])
+  )];
+  const janela = 1800;
+  const passo = 1200;
+  const blocos = [];
+  for (let inicio = 0; inicio < conteudo.length; inicio += passo) {
+    const trecho = conteudo.slice(inicio, inicio + janela);
+    const normalizado = normalizarParaComparacao(trecho);
+    const pontuacao = termos.reduce((total, termo) => total + (normalizado.includes(termo) ? 1 : 0), 0);
+    blocos.push({ inicio, trecho, pontuacao });
+  }
+  const selecionados = [];
+  let tamanho = 0;
+  for (const bloco of blocos.sort((a, b) => b.pontuacao - a.pontuacao || a.inicio - b.inicio)) {
+    if (selecionados.some(item => Math.abs(item.inicio - bloco.inicio) < janela)) continue;
+    if (tamanho + bloco.trecho.length > limite) continue;
+    selecionados.push(bloco);
+    tamanho += bloco.trecho.length;
+    if (tamanho >= limite - janela) break;
+  }
+  if (!selecionados.length) return conteudo.slice(0, limite);
+  return selecionados.sort((a, b) => a.inicio - b.inicio)
+    .map(item => '[Trecho do artigo, posição aproximada ' + item.inicio + ']\n' + item.trecho)
+    .join('\n\n');
+}
+
 function validarEvidenciasTextuais(dados, fontes) {
   if (!Array.isArray(dados.evidencias) || !dados.evidencias.length) {
     throw new Error('A IA não forneceu trechos de evidência rastreáveis. Nenhuma afirmação acadêmica será tratada como comprovada.');
@@ -122,11 +152,16 @@ function validarEvidenciasTextuais(dados, fontes) {
     if (evidenciasValidadas.has(chave)) {
       throw new Error('Há evidências duplicadas para a mesma afirmação e fonte.');
     }
+    const indiceTrecho = textoBase.toLowerCase().indexOf(evidencia.trecho.toLowerCase());
+    const inicioContexto = indiceTrecho >= 0 ? Math.max(0, indiceTrecho - 3500) : 0;
+    const fimContexto = indiceTrecho >= 0
+      ? Math.min(textoBase.length, indiceTrecho + evidencia.trecho.length + 4500)
+      : Math.min(textoBase.length, 18000);
     evidenciasValidadas.set(chave, {
       paragrafo: evidencia.paragrafo,
       fonteId: evidencia.fonteId,
       trecho: evidencia.trecho,
-      textoFonte: textoBase.slice(0, 18000),
+      textoFonte: textoBase.slice(inicioContexto, fimContexto),
       statusTextoCompleto: fonte.statusTextoCompleto || 'Somente resumo disponível',
       titulo: fonte.titulo
     });
@@ -264,7 +299,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10 }) {
       'PDF em acesso aberto: ' + (fonte.pdfUrl || 'Não localizado'),
       'Situação do texto completo: ' + (fonte.statusTextoCompleto || 'Não verificada'),
       'Conferência dos metadados: ' + (fonte.verificacaoCrossref || 'Não verificada'),
-      'Texto integral extraído (trecho disponível): ' + (fonte.textoCompleto ? fonte.textoCompleto.slice(0, 18000) : 'Não disponível. Resumo: ' + (fonte.resumo || 'Resumo indisponível; não utilizar para sustentar afirmações.'))
+      'Trechos relevantes do texto integral: ' + (fonte.textoCompleto ? selecionarTrechosRelevantes(fonte.textoCompleto, tema, objetivo) : 'Texto completo não disponível. Resumo recuperado: ' + (fonte.resumo || 'Resumo indisponível; não utilizar para sustentar afirmações.'))
     ].join('\n');
   }).join('\n\n');
 
