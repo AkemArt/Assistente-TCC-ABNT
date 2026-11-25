@@ -2,16 +2,16 @@ const BASE_URL = 'https://api.openalex.org/works';
 const MAX_PDF_BYTES = 12 * 1024 * 1024;
 const MAX_FULLTEXT_CHARS = 120000;
 
-let pdfParser;
+let PDFParse;
 function obterParserPdf() {
-  if (!pdfParser) {
+  if (!PDFParse) {
     try {
-      pdfParser = require('pdf-parse');
+      ({ PDFParse } = require('pdf-parse'));
     } catch {
       throw new Error('O leitor de PDF não está instalado. Execute npm install antes de pesquisar textos completos.');
     }
   }
-  return pdfParser;
+  return PDFParse;
 }
 
 function extrairTextoXml(xml) {
@@ -54,7 +54,14 @@ async function obterTextoCompleto(fonte) {
     if (buffer.length > MAX_PDF_BYTES || buffer.length < 5 || buffer.subarray(0, 5).toString() !== '%PDF-') {
       return { ...fonte, textoCompleto: null, statusTextoCompleto: 'O endereço não retornou um PDF válido ou excedeu o limite de tamanho' };
     }
-    const resultado = await obterParserPdf()(buffer);
+    const Parser = obterParserPdf();
+    const parser = new Parser({ data: buffer });
+    let resultado;
+    try {
+      resultado = await parser.getText();
+    } finally {
+      await parser.destroy();
+    }
     const texto = String(resultado.text || '').replace(/\\s+/g, ' ').trim().slice(0, MAX_FULLTEXT_CHARS);
     if (texto.length < 1000) {
       return { ...fonte, textoCompleto: null, statusTextoCompleto: 'PDF sem texto extraível suficiente (possível documento digitalizado)' };
@@ -63,7 +70,7 @@ async function obterTextoCompleto(fonte) {
       ...fonte,
       textoCompleto: texto,
       statusTextoCompleto: 'Texto extraído de PDF em acesso aberto',
-      paginasTextoCompleto: Number(resultado.numpages) || null
+      paginasTextoCompleto: Number(resultado.total) || null
     };
   } catch (error) {
     return {
