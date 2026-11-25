@@ -188,9 +188,9 @@ async function verificarSustentacaoSemantica(ai, evidencias) {
   const prompt = [
     'Você é um avaliador metodológico rigoroso. Verifique se o trecho literal e o texto acadêmico disponibilizado realmente sustentam a afirmação. O material pode ser artigo integral de PDF aberto ou apenas resumo; considere a situação informada.',
     'Não considere mera coincidência de palavras como sustentação. Avalie sujeito, população/contexto, variável, direção do resultado, modalidade e limites do que foi observado.',
-    'Classifique como "sustentada" somente quando o trecho e o resumo apoiarem diretamente a afirmação sem extrapolação.',
+    'Classifique como "sustentada" somente quando o trecho e o conteúdo efetivamente disponibilizado (texto integral ou resumo, conforme indicado) apoiarem diretamente a afirmação sem extrapolação.',
     'Use "parcial" se apoiar apenas parte da afirmação, ou "nao_sustentada" se não apoiar, contradizer ou não permitir concluir.',
-    'Não complete lacunas com conhecimento externo. Na dúvida, use "parcial".',
+    'Não complete lacunas com conhecimento externo. Na dúvida, use "parcial". Não confunda confirmação de DOI/metadados com prova de sustentação científica.',
     'Retorne somente JSON válido no formato: {"avaliacoes":[{"indice":0,"status":"sustentada|parcial|nao_sustentada","justificativa":"explicação curta baseada no texto"}]}.',
     'EVIDÊNCIAS PARA AUDITORIA:',
     JSON.stringify(lote)
