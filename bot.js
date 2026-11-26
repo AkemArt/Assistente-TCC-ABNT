@@ -114,29 +114,34 @@ async function processTccProject(interaction, project, totalLabel) {
   console.log(`📥 [${totalLabel}] Seleção de páginas recebida: ${project.pageCount}. Iniciando processamento.`);
   console.log(`🧭 [${totalLabel}] Iniciando salvamento sem aguardar atualização visual do Discord.`);
 
-  let saved = { id: 'novo' };
-  try {
-    console.log(`🗄️ [${totalLabel}] Salvando projeto no banco...`);
-    saved = await withTimeout(
-      tccProjects.saveProject(project),
-      30000,
-      `${totalLabel}_save_project`
-    );
-    console.log(`✅ [${totalLabel}] Projeto salvo no banco. ID: ${saved?.id || 'não retornado'}`);
-    stats.recordEvent({
-      userId: interaction.user.id,
-      username: interaction.user.username,
-      guildId: interaction.guildId,
-      eventType: 'tcc_started'
-    }).catch(error => {
-      console.error(`⚠️ [${totalLabel}] Falha ao registrar início do TCC:`, describeError(error));
-    });
-    if (!saved || !saved.id || saved.id === 'novo' || saved.id === 'sem-id') {
-      throw new Error('O banco não confirmou o salvamento do projeto.');
+  let saved = project.savedProjectId ? { id: project.savedProjectId } : { id: 'novo' };
+  if (!project.savedProjectId) {
+    try {
+      console.log(`🗄️ [${totalLabel}] Salvando projeto no banco...`);
+      saved = await withTimeout(
+        tccProjects.saveProject(project),
+        30000,
+        `${totalLabel}_save_project`
+      );
+      console.log(`✅ [${totalLabel}] Projeto salvo no banco. ID: ${saved?.id || 'não retornado'}`);
+      if (!saved || !saved.id || saved.id === 'novo' || saved.id === 'sem-id') {
+        throw new Error('O banco não confirmou o salvamento do projeto.');
+      }
+      project.savedProjectId = saved.id;
+      stats.recordEvent({
+        userId: interaction.user.id,
+        username: interaction.user.username,
+        guildId: interaction.guildId,
+        eventType: 'tcc_started'
+      }).catch(error => {
+        console.error(`⚠️ [${totalLabel}] Falha ao registrar início do TCC:`, describeError(error));
+      });
+    } catch (dbErr) {
+      console.error(`❌ [${totalLabel}] Não foi possível salvar o projeto no banco:`, describeError(dbErr));
+      throw new Error('Não foi possível salvar seu projeto no banco de dados. Nenhum documento será apresentado como concluído. Tente novamente mais tarde.');
     }
-  } catch (dbErr) {
-    console.error(`❌ [${totalLabel}] Não foi possível salvar o projeto no banco:`, describeError(dbErr));
-    throw new Error('Não foi possível salvar seu projeto no banco de dados. Nenhum documento será apresentado como concluído. Tente novamente mais tarde.');
+  } else {
+    console.log(`♻️ [${totalLabel}] Retomando projeto já salvo no banco. ID: ${saved.id}`);
   }
 
   // Atualização visual limitada a 8s: falha do Discord não pode bloquear a pesquisa.
@@ -452,6 +457,89 @@ async function ensureAuthenticated(interaction) {
 }
 
 // ======================================================
+// WORKER PERSISTENTE DE GERAÇÃO
+// ======================================================
+
+let filaTccEmExecucao = false;
+let filaTccTimer = null;
+
+async function processarProximaGeracaoDaFila() {
+  if (filaTccEmExecucao || !client.isReady()) return;
+  filaTccEmExecucao = true;
+  let item = null;
+  try {
+    item = await generationQueue.claimNextGeneration();
+    if (!item) return;
+
+    const project = {
+      ...(item.project_data || {}),
+      userId: String(item.discord_user_id),
+      username: String(item.discord_username || 'aluno'),
+      guildId: item.guild_id ? String(item.guild_id) : null
+    };
+    if (!project.title || !project.pageCount || !project.savedProjectId) {
+      throw new Error('Tarefa na fila sem dados essenciais ou sem vínculo com o projeto original.');
+    }
+
+    const usuario = await client.users.fetch(String(item.discord_user_id));
+    let mensagemDiscordId = null;
+    const interactionFila = {
+      user: usuario,
+      guildId: item.guild_id || null,
+      editReply: async payload => {
+        if (Array.isArray(payload.files) && payload.files.length) {
+          const enviada = await usuario.send({
+            content: payload.content || 'Seu projeto acadêmico foi concluído.',
+            files: payload.files
+          });
+          const anexos = enviada?.attachments?.size || 0;
+          mensagemDiscordId = enviada?.id || null;
+          return { id: mensagemDiscordId, attachments: { size: anexos } };
+        }
+        return { attachments: { size: 0 } };
+      }
+    };
+
+    console.log(`🔄 [FILA #${item.id}] Retomando geração para o usuário ${item.discord_user_id}.`);
+    await processTccProject(interactionFila, project, `fila-${item.id}`);
+    await generationQueue.markGenerationCompleted(item.id, mensagemDiscordId);
+    console.log(`✅ [FILA #${item.id}] Word e PowerPoint entregues por DM; tarefa concluída.`);
+  } catch (error) {
+    const mensagemErro = String(error?.message || 'Falha desconhecida no processamento da fila.');
+    console.error(`❌ [FILA #${item?.id || 'sem-id'}] Falha no worker:`, describeError(error));
+    if (item) {
+      const tentativa = Number(item.attempts || 1);
+      const cotaEsgotada = /RESOURCE_EXHAUSTED|You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|billing details/i.test(mensagemErro);
+      const erroTemporario = cotaEsgotada || /\b429\b|\b500\b|\b502\b|\b503\b|\b504\b|timeout|ECONNRESET|ETIMEDOUT|temporarily unavailable/i.test(mensagemErro);
+      if (erroTemporario && tentativa < 8) {
+        const retryAt = generationQueue.calcularRetryAt(tentativa);
+        await generationQueue.markGenerationWaiting(item.id, retryAt, mensagemErro);
+        console.log(`⏳ [FILA #${item.id}] Nova tentativa agendada para ${retryAt.toISOString()}.`);
+      } else {
+        await generationQueue.markGenerationFailed(item.id, mensagemErro);
+        console.error(`🛑 [FILA #${item.id}] Tarefa marcada como falha permanente após ${tentativa} tentativa(s).`);
+      }
+    }
+  } finally {
+    filaTccEmExecucao = false;
+  }
+}
+
+async function iniciarWorkerFilaTcc() {
+  await generationQueue.initGenerationQueue();
+  const recuperadas = await generationQueue.recoverStaleGenerations(15);
+  if (recuperadas) console.log(`♻️ Fila: ${recuperadas} tarefa(s) recuperada(s) após interrupção.`);
+  await processarProximaGeracaoDaFila();
+  if (filaTccTimer) clearInterval(filaTccTimer);
+  filaTccTimer = setInterval(() => {
+    processarProximaGeracaoDaFila().catch(error => {
+      console.error('❌ Erro no ciclo do worker da fila:', describeError(error));
+    });
+  }, 60 * 1000);
+  console.log('🟢 Worker da fila de TCC ativo; consulta ao Neon a cada 60 segundos enquanto o serviço estiver ligado.');
+}
+
+// ======================================================
 // INICIALIZAÇÃO
 // ======================================================
 
@@ -474,6 +562,10 @@ client.once(Events.ClientReady, () => {
 
   tccProjects.initTccProjects().catch(error => {
     console.error('❌ Falha ao preparar projetos de TCC:', error);
+  });
+
+  iniciarWorkerFilaTcc().catch(error => {
+    console.error('❌ Falha ao iniciar worker da fila de TCC:', describeError(error));
   });
 });
 
