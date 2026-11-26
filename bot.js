@@ -22,6 +22,7 @@ const {
 const db = require('./database');
 const stats = require('./stats');
 const tccProjects = require('./tcc-projects');
+const generationQueue = require('./tcc-generation-queue');
 const auth = require('./auth');
 const feedback = require('./feedback');
 const { gerarRascunhoComPesquisa } = require('./ia-tcc');
@@ -574,15 +575,25 @@ client.on(Events.InteractionCreate, async interaction => {
       } catch (error) {
         console.error(`❌ [${totalLabel}] Falha ao iniciar TCC:`, describeError(error), error);
         const erroTexto = String(error?.message || '');
-        const mensagem = /GEMINI_API_KEY|GOOGLE_API_KEY/i.test(erroTexto)
-          ? '⚠️ A inteligência artificial do bot não está configurada no servidor. Avise o administrador. Nenhum documento foi gerado.'
-          : /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto)
-          ? '⏸️ **A cota gratuita do Gemini foi atingida.** Seu projeto foi salvo, mas os documentos não foram concluídos. O Google não informou um horário exato de renovação para esta cota. Consulte a disponibilidade e os limites do modelo em https://aistudio.google.com/usage. Quando a cota estiver disponível novamente, solicite a geração do projeto outra vez.'
-          : /429|limite de requisições|OpenAlex|Crossref/i.test(erroTexto)
-          ? '⚠️ O serviço de pesquisa acadêmica está temporariamente limitando consultas. Seu projeto foi registrado, mas nenhum documento foi gerado. Aguarde alguns minutos antes de tentar novamente.'
-          : /Timeout/.test(erroTexto)
-            ? '⏱️ A pesquisa ou geração excedeu o tempo limite. Seu projeto pode ter sido registrado, mas nenhum documento foi concluído. Tente novamente mais tarde.'
-            : '❌ Não consegui concluir a geração do TCC nesta tentativa. Seu projeto pode ter sido registrado, mas nenhum arquivo será apresentado como concluído. Consulte os registros ou tente novamente mais tarde.';
+        let mensagem;
+        if (/GEMINI_API_KEY|GOOGLE_API_KEY/i.test(erroTexto)) {
+          mensagem = '⚠️ A inteligência artificial do bot não está configurada no servidor. Avise o administrador. Nenhum documento foi gerado.';
+        } else if (/You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto)) {
+          try {
+            const itemFila = await generationQueue.enqueueGeneration(project, erroTexto);
+            mensagem = `⏸️ **A cota do Gemini foi atingida.** Seu projeto foi preservado na fila de processamento (protocolo #${itemFila.id}). Nenhum documento foi apresentado como concluído. A retomada automática ainda está sendo integrada; por enquanto, não precisa preencher os dados novamente. Consulte a cota em https://aistudio.google.com/usage.`;
+            console.log(`🗃️ [${totalLabel}] Projeto ${itemFila.id} registrado na fila persistente após cota Gemini.`);
+          } catch (queueError) {
+            console.error(`❌ [${totalLabel}] Não foi possível registrar a fila de retomada:`, describeError(queueError));
+            mensagem = '⏸️ **A cota do Gemini foi atingida**, mas não consegui registrar a retomada automática no banco. Seu cadastro inicial pode estar salvo; nenhum documento foi gerado. Não vou afirmar que ele está na fila.';
+          }
+        } else if (/429|limite de requisições|OpenAlex|Crossref/i.test(erroTexto)) {
+          mensagem = '⚠️ O serviço de pesquisa acadêmica está temporariamente limitando consultas. Seu projeto foi registrado, mas nenhum documento foi gerado. Aguarde alguns minutos antes de tentar novamente.';
+        } else if (/Timeout/.test(erroTexto)) {
+          mensagem = '⏱️ A pesquisa ou geração excedeu o tempo limite. Seu projeto pode ter sido registrado, mas nenhum documento foi concluído. Tente novamente mais tarde.';
+        } else {
+          mensagem = '❌ Não consegui concluir a geração do TCC nesta tentativa. Seu projeto pode ter sido registrado, mas nenhum arquivo será apresentado como concluído. Consulte os registros ou tente novamente mais tarde.';
+        }
         await interaction.editReply({ content: mensagem, embeds: [], files: [] }).catch(() => {});
       } finally {
         console.timeEnd(totalLabel);
