@@ -20,7 +20,8 @@ const {
   validarSecoes,
   contarPalavrasSecoes,
   substituirMarcadores,
-  erroPermiteFallbackModelo
+  erroPermiteFallbackModelo,
+  gerarTextoTCC
 } = require('../ia-tcc');
 
 test('reconstrói resumo a partir do índice invertido do OpenAlex', () => {
@@ -729,4 +730,28 @@ test('citações consagradas só são aceitas quando a URL pertence ao grounding
   assert.equal(validarCitacoesConsagradas([base], ['https://outro.example.org/fonte']).length, 0);
   assert.equal(validarCitacoesConsagradas([{ ...base, urlFonte: 'http://example.org/fonte' }]).length, 0);
   assert.equal(validarCitacoesConsagradas([{ ...base, urlFonte: 'javascript:alert(1)' }]).length, 0);
+});
+
+
+test('interrompe a geração quando a pesquisa não encontra fontes reais', async () => {
+  const chaveOriginal = process.env.GEMINI_API_KEY;
+  const chaveGoogleOriginal = process.env.GOOGLE_API_KEY;
+  try {
+    process.env.GEMINI_API_KEY = 'chave-de-teste-nao-utilizada';
+    delete process.env.GOOGLE_API_KEY;
+    await assert.rejects(
+      gerarTextoTCC({
+        tema: 'Impacto da inteligência artificial na educação',
+        objetivo: 'Analisar aplicações educacionais',
+        fontes: [],
+        pageCount: 10
+      }),
+      /Nenhuma fonte acadêmica foi localizada/
+    );
+  } finally {
+    if (chaveOriginal === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = chaveOriginal;
+    if (chaveGoogleOriginal === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = chaveGoogleOriginal;
+  }
 });
