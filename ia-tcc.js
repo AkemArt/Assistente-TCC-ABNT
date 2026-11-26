@@ -418,14 +418,6 @@ async function verificarSustentacaoSemantica(ai, evidencias) {
     porIndice.set(item.indice, item);
   }
 
-  for (let i = 0; i < evidencias.length; i += 1) {
-    const avaliacao = porIndice.get(i);
-    if (!avaliacao || avaliacao.status !== 'sustentada') {
-      const status = avaliacao && avaliacao.status || 'sem avaliação';
-      throw new Error('Afirmação não comprovada pela fonte ' + evidencias[i].fonteId +
-        ' (resultado da auditoria: ' + status + '). Revise a afirmação ou encontre um estudo que a sustente. Nenhum texto será apresentado como fundamentado sem essa confirmação.');
-    }
-  }
   return evidencias.map((_, indice) => porIndice.get(indice));
 }
 
@@ -718,16 +710,79 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10, citacoesC
     }
   }, 'redação acadêmica do TCC');
 
-  const parsed = JSON.parse(limparJson(response && response.text));
+  let parsed = JSON.parse(limparJson(response && response.text));
   if (!validarSecoes(parsed)) {
     throw new Error('A IA retornou uma estrutura incompleta. Tente novamente; nenhum texto genérico será usado como substituto.');
   }
 
   await onProgress(72, 'Redação acadêmica produzida. Conferindo citações e evidências nos artigos selecionados...');
-  const evidencias = validarEvidenciasTextuais(parsed, fontes);
-  const fontesCitadas = validarVinculoDeEvidencias(parsed, fontes);
-  await onProgress(82, 'Executando auditoria científica para verificar se os estudos realmente sustentam cada afirmação...');
-  const auditoriaEvidencias = await verificarSustentacaoSemantica(ai, evidencias);
+  let evidencias;
+  let fontesCitadas;
+  let auditoriaEvidencias;
+  const maxTentativasCorrecaoEvidencia = 2;
+
+  for (let tentativa = 0; tentativa <= maxTentativasCorrecaoEvidencia; tentativa += 1) {
+    try {
+      evidencias = validarEvidenciasTextuais(parsed, fontes);
+      fontesCitadas = validarVinculoDeEvidencias(parsed, fontes);
+      await onProgress(82, tentativa === 0
+        ? 'Executando auditoria científica das afirmações e dos estudos...'
+        : 'Revisando afirmações sem sustentação suficiente e conferindo novamente as fontes...');
+      auditoriaEvidencias = await verificarSustentacaoSemantica(ai, evidencias);
+      const naoSustentadas = auditoriaEvidencias
+        .map((avaliacao, indice) => ({ ...avaliacao, evidencia: evidencias[indice] }))
+        .filter(item => !item || item.status !== 'sustentada');
+
+      if (naoSustentadas.length === 0) break;
+      if (tentativa === maxTentativasCorrecaoEvidencia) {
+        const resumoFalhas = naoSustentadas.slice(0, 4).map(item =>
+          item.evidencia.fonteId + ': ' + (item.justificativa || item.status)
+        ).join(' | ');
+        throw new Error('A auditoria não confirmou algumas relações entre afirmações e fontes após ' +
+          (maxTentativasCorrecaoEvidencia + 1) + ' versões. Nenhuma afirmação sem apoio foi liberada. Pontos a revisar: ' + resumoFalhas);
+      }
+
+      const feedback = naoSustentadas.map(item => ({
+        fonte: item.evidencia.fonteId,
+        afirmacao: item.evidencia.paragrafo,
+        status: item.status,
+        motivoDaAuditoria: item.justificativa
+      }));
+      const promptCorrecao = [
+        prompt,
+        '',
+        'REVISÃO OBRIGATÓRIA APÓS AUDITORIA DE EVIDÊNCIAS:',
+        'A versão anterior contém afirmações que a auditoria não conseguiu confirmar nas fontes indicadas.',
+        'Reescreva o TCC inteiro no mesmo JSON e mantenha o tema, objetivo, estrutura e extensão aproximada.',
+        'Para cada item abaixo, faça uma destas ações: (a) reformule a afirmação para refletir estritamente o que a fonte realmente informa; (b) use outra fonte já fornecida que sustente diretamente a afirmação; ou (c) retire a afirmação factual e apresente a lacuna como limitação/pergunta em aberto, sem atribuí-la ao estudo.',
+        'Não invente evidências, resultados, autores, estatísticas ou trechos. Não tente contornar a auditoria repetindo a mesma afirmação com outras palavras.',
+        'Recrie o array evidencias para corresponder exatamente aos parágrafos e marcadores [F#] da nova versão, usando trechos literais localizáveis nas fontes fornecidas.',
+        'ITENS REPROVADOS NA AUDITORIA:',
+        JSON.stringify(feedback),
+        'FONTES DISPONÍVEIS E SEUS TEXTOS:',
+        fontesText
+      ].join('\\n');
+
+      const respostaCorrecao = await gerarConteudoGeminiComRetry(ai, {
+        contents: promptCorrecao,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.15,
+          maxOutputTokens: 32768
+        }
+      }, 'correção de afirmações sem sustentação científica');
+      parsed = JSON.parse(limparJson(respostaCorrecao && respostaCorrecao.text));
+      if (!validarSecoes(parsed)) {
+        throw new Error('A revisão científica retornou uma estrutura incompleta. Nenhum documento foi liberado.');
+      }
+    } catch (error) {
+      if (tentativa === maxTentativasCorrecaoEvidencia) throw error;
+      if (/não foi localizado|sem correspondência exata|não possui texto completo|evidência duplicada|estrutura de evidências/i.test(String(error && error.message || error))) {
+        throw error;
+      }
+      throw error;
+    }
+  }
 
   const palavrasGeradas = contarPalavrasSecoes(parsed);
   const palavrasEsperadas = Number(pageCount) * 250;
