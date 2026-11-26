@@ -685,7 +685,9 @@ test('citações de autores só passam com origem confirmada, tamanho e ano vál
 test('troca de modelo Gemini: reconhece 404 e respeita GEMINI_MODEL com vários modelos', () => {
   assert.equal(erroPermiteFallbackModelo({ status: 404 }), true);
   assert.equal(erroPermiteFallbackModelo(new Error('models/x is no longer available')), true);
-  assert.equal(erroPermiteFallbackModelo(new Error('HTTP 429 RESOURCE_EXHAUSTED')), true);
+  assert.equal(erroPermiteFallbackModelo(new Error('HTTP 429 RESOURCE_EXHAUSTED')), false);
+  assert.equal(erroPermiteFallbackModelo(new Error('Falha na API Gemini: RESOURCE_EXHAUSTED')), false);
+  assert.equal(erroPermiteFallbackModelo({ message: 'RESOURCE_EXHAUSTED: quota exceeded' }), false);
   assert.equal(erroPermiteFallbackModelo(new Error('You exceeded your current quota, please check your plan and billing details')), false);
   assert.equal(erroPermiteFallbackModelo({ status: 'RESOURCE_EXHAUSTED', message: 'quota exceeded' }), false);
   assert.equal(erroPermiteFallbackModelo({ status: 500 }), false);
