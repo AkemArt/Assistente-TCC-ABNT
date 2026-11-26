@@ -690,9 +690,15 @@ test('troca de modelo Gemini: reconhece 404 e respeita GEMINI_MODEL com vários 
   assert.equal(erroPermiteFallbackModelo({ status: 'RESOURCE_EXHAUSTED', message: 'quota exceeded' }), false);
   assert.equal(erroPermiteFallbackModelo({ status: 500 }), false);
   const original = process.env.GEMINI_MODEL;
-  process.env.GEMINI_MODEL = 'modelo-a, modelo-b';
   try {
+    process.env.GEMINI_MODEL = 'modelo-a, modelo-b';
     assert.deepEqual(listarModelosGemini(), ['modelo-a', 'modelo-b']);
+
+    process.env.GEMINI_MODEL = 'gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash-lite';
+    assert.deepEqual(listarModelosGemini(), ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite']);
+
+    delete process.env.GEMINI_MODEL;
+    assert.deepEqual(listarModelosGemini(), ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite']);
   } finally {
     if (original === undefined) delete process.env.GEMINI_MODEL; else process.env.GEMINI_MODEL = original;
   }
