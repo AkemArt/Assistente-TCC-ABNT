@@ -530,7 +530,15 @@ async function processarProximaGeracaoDaFila() {
       const cotaEsgotada = /RESOURCE_EXHAUSTED|You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|billing details/i.test(mensagemErro);
       const erroTemporario = cotaEsgotada || /\b429\b|\b500\b|\b502\b|\b503\b|\b504\b|timeout|ECONNRESET|ETIMEDOUT|temporarily unavailable/i.test(mensagemErro);
       if (erroTemporario && tentativa < 8) {
-        const retryAt = generationQueue.calcularRetryAt(tentativa);
+        // Sobrecarga 503/UNAVAILABLE costuma ser transitória: começa em 2 min
+        // e aumenta progressivamente até 30 min. Cota da conta mantém espera maior.
+        const falhaServicoGemini = /HTTP\\s*503|\\b503\\b|UNAVAILABLE|overloaded|temporarily unavailable/i.test(mensagemErro);
+        const atrasoMs = falhaServicoGemini
+          ? Math.min(30, 2 ** Math.min(tentativa, 4)) * 60 * 1000
+          : null;
+        const retryAt = atrasoMs
+          ? new Date(Date.now() + atrasoMs)
+          : generationQueue.calcularRetryAt(tentativa);
         await generationQueue.markGenerationWaiting(item.id, retryAt, mensagemErro);
         console.log(`⏳ [FILA #${item.id}] Nova tentativa agendada para ${retryAt.toISOString()}.`);
       } else {
@@ -688,14 +696,22 @@ client.on(Events.InteractionCreate, async interaction => {
         let mensagem;
         if (/GEMINI_API_KEY|GOOGLE_API_KEY/i.test(erroTexto)) {
           mensagem = '⚠️ A inteligência artificial do bot não está configurada no servidor. Avise o administrador. Nenhum documento foi gerado.';
-        } else if (/You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto)) {
+        } else if (
+          /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto) ||
+          (/Falha na API Gemini/i.test(erroTexto) && /HTTP\\s*(429|500|502|503|504)|\\b(429|500|502|503|504)\\b|UNAVAILABLE|overloaded|temporarily unavailable|ECONNRESET|ETIMEDOUT/i.test(erroTexto))
+        ) {
+          const erroDeCota = /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto);
           try {
             const itemFila = await generationQueue.enqueueGeneration(project, erroTexto);
-            mensagem = `⏸️ **A cota do Gemini foi atingida.** Seu projeto foi preservado na fila de processamento (protocolo #${itemFila.id}). Nenhum documento foi apresentado como concluído. A retomada automática ainda está sendo integrada; por enquanto, não precisa preencher os dados novamente. Consulte a cota em https://aistudio.google.com/usage.`;
-            console.log(`🗃️ [${totalLabel}] Projeto ${itemFila.id} registrado na fila persistente após cota Gemini.`);
+            mensagem = erroDeCota
+              ? `⏸️ **A cota do Gemini foi atingida.** Seu projeto foi preservado na fila (protocolo #${itemFila.id}) e terá novas tentativas automáticas. Nenhum documento foi apresentado como concluído. Consulte https://aistudio.google.com/usage para verificar a cota.`
+              : `⏳ **O Gemini está temporariamente indisponível.** Seu projeto foi preservado na fila (protocolo #${itemFila.id}) e terá novas tentativas automáticas. Você não precisa preencher os dados novamente. Nenhum documento foi apresentado como concluído.`;
+            console.log(`🗃️ [${totalLabel}] Projeto ${itemFila.id} registrado na fila persistente após falha temporária/cota Gemini.`);
           } catch (queueError) {
             console.error(`❌ [${totalLabel}] Não foi possível registrar a fila de retomada:`, describeError(queueError));
-            mensagem = '⏸️ **A cota do Gemini foi atingida**, mas não consegui registrar a retomada automática no banco. Seu cadastro inicial pode estar salvo; nenhum documento foi gerado. Não vou afirmar que ele está na fila.';
+            mensagem = erroDeCota
+              ? '⏸️ A cota do Gemini foi atingida, mas não consegui confirmar o registro na fila. Seu cadastro inicial pode estar salvo; nenhum documento foi gerado.'
+              : '⏳ O Gemini está temporariamente indisponível, mas não consegui confirmar o registro na fila. Seu cadastro inicial pode estar salvo; nenhum documento foi gerado.';
           }
         } else if (/429|limite de requisições|OpenAlex|Crossref/i.test(erroTexto)) {
           mensagem = '⚠️ O serviço de pesquisa acadêmica está temporariamente limitando consultas. Seu projeto foi registrado, mas nenhum documento foi gerado. Aguarde alguns minutos antes de tentar novamente.';
