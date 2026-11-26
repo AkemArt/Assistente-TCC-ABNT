@@ -90,10 +90,12 @@ async function safeProgress(interaction, content, label) {
   progressEditQueues.set(interaction, atualizacao.catch(() => {}));
 
   try {
-    await atualizacao;
+    // O limite evita que uma requisição lenta do Discord segure a geração.
+    // A fila continua aguardando a requisição original antes da próxima edição.
+    await withTimeout(atualizacao, 10000, `${label}_discord_progress`);
     return true;
   } catch (error) {
-    console.warn(`⚠️ [${label}] Falha ao atualizar o progresso no Discord:`, describeError(error));
+    console.warn(`⚠️ [${label}] Falha/timeout ao atualizar o progresso no Discord:`, describeError(error));
     return false;
   }
 }
@@ -125,7 +127,7 @@ async function processTccProject(interaction, project, totalLabel) {
   // Atualiza a resposta imediatamente após o deferReply, antes de operações no banco.
   await safeProgress(
     interaction,
-    '🚀 **TCC iniciado — preparando o ambiente**\\n' +
+    '🚀 **TCC iniciado — preparando o ambiente**\n' +
       formatarBarraProgresso(5, 'Registrando seu projeto e preparando a pesquisa acadêmica...'),
     totalLabel
   );
