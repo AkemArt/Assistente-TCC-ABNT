@@ -532,7 +532,7 @@ async function processarProximaGeracaoDaFila() {
       if (erroTemporario && tentativa < 8) {
         // Sobrecarga 503/UNAVAILABLE costuma ser transitória: começa em 2 min
         // e aumenta progressivamente até 30 min. Cota da conta mantém espera maior.
-        const falhaServicoGemini = /HTTP\\s*503|\\b503\\b|UNAVAILABLE|overloaded|temporarily unavailable/i.test(mensagemErro);
+        const falhaServicoGemini = /HTTP\s*503|\b503\b|UNAVAILABLE|overloaded|temporarily unavailable/i.test(mensagemErro);
         const atrasoMs = falhaServicoGemini
           ? Math.min(30, 2 ** Math.min(tentativa, 4)) * 60 * 1000
           : null;
@@ -698,7 +698,7 @@ client.on(Events.InteractionCreate, async interaction => {
           mensagem = '⚠️ A inteligência artificial do bot não está configurada no servidor. Avise o administrador. Nenhum documento foi gerado.';
         } else if (
           /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto) ||
-          (/Falha na API Gemini/i.test(erroTexto) && /HTTP\\s*(429|500|502|503|504)|\\b(429|500|502|503|504)\\b|UNAVAILABLE|overloaded|temporarily unavailable|ECONNRESET|ETIMEDOUT/i.test(erroTexto))
+          (/Falha na API Gemini/i.test(erroTexto) && /HTTP\s*(429|500|502|503|504)|\b(429|500|502|503|504)\b|UNAVAILABLE|overloaded|temporarily unavailable|ECONNRESET|ETIMEDOUT/i.test(erroTexto))
         ) {
           const erroDeCota = /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto);
           try {
