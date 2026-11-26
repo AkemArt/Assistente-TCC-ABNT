@@ -28,6 +28,7 @@ const feedback = require('./feedback');
 const { gerarRascunhoComPesquisa } = require('./ia-tcc');
 
 const http = require('http');
+const crypto = require('crypto');
 
 console.log('🚀 Iniciando bot Discord...');
 
@@ -1673,7 +1674,40 @@ client.on(Events.InteractionCreate, async interaction => {
 
 const PORT = process.env.PORT || 3000;
 
+function validarTokenWorker(authorization, tokenEsperado) {
+  if (!tokenEsperado || !authorization) return false;
+  const recebido = String(authorization).replace(/^Bearer\\s+/i, '');
+  const a = Buffer.from(recebido);
+  const b = Buffer.from(String(tokenEsperado));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 const server = http.createServer((req, res) => {
+  if (req.method === 'POST' && req.url === '/internal/queue/tick') {
+    const tokenEsperado = process.env.QUEUE_WORKER_TOKEN;
+    if (!tokenEsperado) {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('QUEUE_WORKER_TOKEN não configurado.');
+      return;
+    }
+    if (!validarTokenWorker(req.headers.authorization, tokenEsperado)) {
+      res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Não autorizado.');
+      return;
+    }
+    if (!client.isReady()) {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '15' });
+      res.end('Bot ainda inicializando. Tente novamente.');
+      return;
+    }
+    processarProximaGeracaoDaFila().catch(error => {
+      console.error('❌ Falha ao acionar worker por HTTP:', describeError(error));
+    });
+    res.writeHead(202, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ accepted: true, message: 'Verificação da fila iniciada.' }));
+    return;
+  }
+
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('OK');
 });
