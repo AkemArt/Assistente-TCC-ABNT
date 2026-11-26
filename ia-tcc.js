@@ -23,7 +23,7 @@ function erroGeminiTransitorio(error) {
 // Prioriza os modelos estáveis mais recentes e mantém dois fallbacks atuais.
 // Evita depender de modelos 2.5 com acesso limitado para novos projetos. Defina GEMINI_MODEL no Render
 // (aceita vários, separados por vírgula) para escolher o modelo que sua chave realmente enxerga.
-const MODELOS_GEMINI_PADRAO = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'];
+const MODELOS_GEMINI_PADRAO = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
 let modeloGeminiAtivo = null;
 
 function listarModelosGemini() {
@@ -852,15 +852,26 @@ async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount 
   if (!tema || !String(tema).trim()) throw new Error('Informe o tema do TCC.');
   const ai = new GoogleGenAI({ apiKey });
 
-  // 1) A IA entende o tema e gera consultas específicas. 2) Em paralelo à busca dos artigos,
-  // ela localiza citações de autores consagrados. 3) A redação usa apenas as fontes reais.
-  const consultas = await gerarConsultasBusca(ai, tema, objetivo);
-  const citacoesPromise = gerarCitacoesConsagradas(ai, { tema, objetivo }).catch(error => {
-    console.warn('⚠️ Citações de autores indisponíveis; o texto seguirá sem elas:', String(error?.message || error).slice(0, 200));
-    return { citacoes: [], fontesBusca: [] };
-  });
+  // Economia de cota: as consultas bibliográficas são derivadas deterministicamente
+  // do tema/objetivo pelo módulo de pesquisa. Assim, não gastamos uma chamada Gemini
+  // apenas para criar palavras-chave. A redação e a auditoria científica continuam com IA.
+  const consultas = [];
   const fontes = await pesquisarTrabalhos(tema, limite, objetivo, { consultas });
-  const { citacoes, fontesBusca } = await citacoesPromise;
+
+  // A busca Grounding para citações de personalidades é opcional, pois consome cota
+  // adicional e não é necessária para a fundamentação científica do TCC.
+  // Ative somente se desejar esse recurso: ENABLE_CELEBRITY_QUOTES=true no Render.
+  let citacoes = [];
+  let fontesBusca = [];
+  if (String(process.env.ENABLE_CELEBRITY_QUOTES || '').toLowerCase() === 'true') {
+    try {
+      const resultadoCitacoes = await gerarCitacoesConsagradas(ai, { tema, objetivo });
+      citacoes = resultadoCitacoes.citacoes;
+      fontesBusca = resultadoCitacoes.fontesBusca;
+    } catch (error) {
+      console.warn('⚠️ Citações de autores consagrados indisponíveis; seguindo sem elas:', String(error?.message || error).slice(0, 200));
+    }
+  }
   return gerarTextoTCC({
     tema, objetivo, fontes, pageCount,
     citacoesConsagradas: citacoes,
