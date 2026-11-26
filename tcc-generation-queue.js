@@ -95,6 +95,12 @@ async function markGenerationFailed(id, errorMessage) {
   `, [id, String(errorMessage || '').slice(0,2000)]);
 }
 
+function calcularRetryAt(attempts = 1, now = Date.now()) {
+  const numero = Math.max(1, Number(attempts) || 1);
+  const minutos = Math.min(12 * 60, 30 * (2 ** Math.min(numero - 1, 5)));
+  return new Date(now + minutos * 60 * 1000);
+}
+
 async function recoverStaleGenerations(minutes = 15) {
   const res = await db.query(`
     UPDATE tcc_generation_queue
@@ -115,5 +121,6 @@ module.exports = {
   markGenerationWaiting,
   markGenerationCompleted,
   markGenerationFailed,
-  recoverStaleGenerations
+  recoverStaleGenerations,
+  calcularRetryAt
 };
