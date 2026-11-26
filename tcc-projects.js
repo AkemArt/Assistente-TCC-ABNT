@@ -200,12 +200,13 @@ function sectionHeading(text) {
   });
 }
 
-async function generateTccResearch(project) {
+async function generateTccResearch(project, onProgress = async () => {}) {
   return gerarRascunhoComPesquisa({
     tema: project.title,
     objetivo: project.objective || project.problem || '',
     limite: 8,
-    pageCount: Number(project.pageCount) || 10
+    pageCount: Number(project.pageCount) || 10,
+    onProgress
   });
 }
 
