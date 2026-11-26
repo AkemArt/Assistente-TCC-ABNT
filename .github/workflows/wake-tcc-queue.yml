@@ -1,0 +1,55 @@
+name: Acordar fila de TCC
+
+on:
+  schedule:
+    # Executa a cada 20 minutos em UTC. Atrasos do agendador do GitHub são possíveis.
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tcc-queue-wakeup
+  cancel-in-progress: false
+
+jobs:
+  wake-queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Validar configuração
+        env:
+          QUEUE_WORKER_URL: ${{ secrets.QUEUE_WORKER_URL }}
+          QUEUE_WORKER_TOKEN: ${{ secrets.QUEUE_WORKER_TOKEN }}
+        run: |
+          test -n "$QUEUE_WORKER_URL" || { echo "::error::Configure o secret QUEUE_WORKER_URL"; exit 1; }
+          test -n "$QUEUE_WORKER_TOKEN" || { echo "::error::Configure o secret QUEUE_WORKER_TOKEN"; exit 1; }
+
+      - name: Acionar worker do Render
+        env:
+          QUEUE_WORKER_URL: ${{ secrets.QUEUE_WORKER_URL }}
+          QUEUE_WORKER_TOKEN: ${{ secrets.QUEUE_WORKER_TOKEN }}
+        run: |
+          URL="${QUEUE_WORKER_URL%/}/internal/queue/tick"
+          for attempt in 1 2 3 4 5 6; do
+            CODE=$(curl --silent --show-error --output /tmp/queue-response.txt --write-out "%{http_code}" \
+              --connect-timeout 15 --max-time 35 \
+              --request POST \
+              --header "Authorization: Bearer ${QUEUE_WORKER_TOKEN}" \
+              "$URL" || true)
+            cat /tmp/queue-response.txt 2>/dev/null || true
+            echo
+            if [ "$CODE" = "202" ]; then
+              echo "Worker acionado com sucesso."
+              exit 0
+            fi
+            if [ "$CODE" = "401" ]; then
+              echo "::error::Token inválido no Render ou no GitHub Actions."
+              exit 1
+            fi
+            echo "Tentativa $attempt retornou HTTP ${CODE:-sem resposta}; aguardando 20 segundos."
+            sleep 20
+          done
+          echo "::error::Não foi possível acionar o worker após seis tentativas."
+          exit 1
