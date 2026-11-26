@@ -151,27 +151,27 @@ async function processTccProject(interaction, project, totalLabel) {
   }
 
   // Atualização visual limitada a 8s: falha do Discord não pode bloquear a pesquisa.
-  await safeProgress(interaction, '📚 **Preparando sua pesquisa acadêmica**\\n' + formatarBarraProgresso(15, 'Consultando OpenAlex e Crossref, validando artigos, DOI e autoria...'), totalLabel);
+  await safeProgress(interaction, '📚 **Preparando sua pesquisa acadêmica**\n' + formatarBarraProgresso(15, 'Consultando OpenAlex e Crossref, validando artigos, DOI e autoria...'), totalLabel);
 
   // Uma única pesquisa e uma única redação servem de base aos dois documentos.
   console.log(`🔎 [${totalLabel}] Iniciando pesquisa OpenAlex/Crossref e geração acadêmica.`);
   const pesquisa = await withTimeout(
     tccProjects.generateTccResearch(project, async (percentual, etapa) => {
-      await safeProgress(interaction, '🔬 **Pesquisa e redação acadêmica em andamento**\\n' + formatarBarraProgresso(percentual, etapa), totalLabel);
+      await safeProgress(interaction, '🔬 **Pesquisa e redação acadêmica em andamento**\n' + formatarBarraProgresso(percentual, etapa), totalLabel);
     }),
     540000,
     `${totalLabel}_academic_research`
   );
   console.log(`✅ [${totalLabel}] Pesquisa acadêmica concluída. Preparando os documentos.`);
 
-  await safeProgress(interaction, '🧾 **Pesquisa e revisão concluídas**\\n' + formatarBarraProgresso(90, 'Montando o Word ABNT e a apresentação PowerPoint...'), totalLabel);
+  await safeProgress(interaction, '🧾 **Pesquisa e revisão concluídas**\n' + formatarBarraProgresso(90, 'Montando o Word ABNT e a apresentação PowerPoint...'), totalLabel);
 
   const [docxBuffer, pptxBuffer] = await Promise.all([
     tccProjects.generateTccDocx(project, pesquisa),
     tccProjects.generateTccPptx(project, pesquisa)
   ]);
 
-  await safeProgress(interaction, '📄 **Documentos quase prontos**\\n' + formatarBarraProgresso(96, 'Validando integridade do Word e PowerPoint...'), totalLabel);
+  await safeProgress(interaction, '📄 **Documentos quase prontos**\n' + formatarBarraProgresso(96, 'Validando integridade do Word e PowerPoint...'), totalLabel);
 
   const rawDocx = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
   const rawPptx = Buffer.isBuffer(pptxBuffer) ? pptxBuffer : Buffer.from(pptxBuffer || []);
@@ -589,7 +589,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const mensagem = /GEMINI_API_KEY|GOOGLE_API_KEY/i.test(erroTexto)
           ? '⚠️ A inteligência artificial do bot não está configurada no servidor. Avise o administrador. Nenhum documento foi gerado.'
           : /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto)
-          ? '⏸️ **A cota gratuita do Gemini foi atingida.** Seu projeto foi salvo, mas os documentos não foram concluídos. A renovação diária é prevista para **' + proximaRenovacaoGemini() + ' (horário de Brasília)**, correspondente à meia-noite do Pacífico. É uma estimativa: confira a disponibilidade real em https://aistudio.google.com/usage. Depois da renovação, será necessário solicitar novamente a geração.'
+          ? '⏸️ **A cota gratuita do Gemini foi atingida.** Seu projeto foi salvo, mas os documentos não foram concluídos. A próxima virada do dia no horário do Pacífico está estimada para **' + proximaRenovacaoGemini() + ' (horário de Brasília)**, mas o Google não garante que todas as cotas sejam renovadas nesse instante. Confira o horário de reset específico do modelo em https://aistudio.google.com/usage. Depois que a cota for liberada, será necessário solicitar novamente a geração. Depois da renovação, será necessário solicitar novamente a geração.'
           : /429|limite de requisições|OpenAlex|Crossref/i.test(erroTexto)
           ? '⚠️ O serviço de pesquisa acadêmica está temporariamente limitando consultas. Seu projeto foi registrado, mas nenhum documento foi gerado. Aguarde alguns minutos antes de tentar novamente.'
           : /Timeout/.test(erroTexto)
