@@ -619,7 +619,7 @@ async function gerarCitacoesConsagradas(ai, { tema, objetivo }) {
   return { citacoes, fontesBusca };
 }
 
-async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10, citacoesConsagradas = [], fontesBuscaCitacoes = [] }) {
+async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10, citacoesConsagradas = [], fontesBuscaCitacoes = [], onProgress = async () => {} }) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY ou GOOGLE_API_KEY não configurada. A geração acadêmica foi interrompida para não produzir texto genérico sem IA.');
@@ -714,8 +714,10 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10, citacoesC
     throw new Error('A IA retornou uma estrutura incompleta. Tente novamente; nenhum texto genérico será usado como substituto.');
   }
 
+  await onProgress(72, 'Redação acadêmica produzida. Conferindo citações e evidências nos artigos selecionados...');
   const evidencias = validarEvidenciasTextuais(parsed, fontes);
   const fontesCitadas = validarVinculoDeEvidencias(parsed, fontes);
+  await onProgress(82, 'Executando auditoria científica para verificar se os estudos realmente sustentam cada afirmação...');
   const auditoriaEvidencias = await verificarSustentacaoSemantica(ai, evidencias);
 
   const palavrasGeradas = contarPalavrasSecoes(parsed);
@@ -844,7 +846,7 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10, citacoesC
   };
 }
 
-async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount = 10 }) {
+async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount = 10, onProgress = async () => {} }) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY ou GOOGLE_API_KEY não configurada. A geração acadêmica foi interrompida para não produzir texto genérico sem IA.');
@@ -856,7 +858,9 @@ async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount 
   // do tema/objetivo pelo módulo de pesquisa. Assim, não gastamos uma chamada Gemini
   // apenas para criar palavras-chave. A redação e a auditoria científica continuam com IA.
   const consultas = [];
+  await onProgress(25, 'Buscando artigos específicos do tema em OpenAlex/Crossref e verificando DOI, autores e ano...');
   const fontes = await pesquisarTrabalhos(tema, limite, objetivo, { consultas });
+  await onProgress(48, fontes.length + ' fontes acadêmicas passaram pela triagem. Preparando a redação baseada nesses estudos...');
 
   // A busca Grounding para citações de personalidades é opcional, pois consome cota
   // adicional e não é necessária para a fundamentação científica do TCC.
@@ -872,11 +876,15 @@ async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount 
       console.warn('⚠️ Citações de autores consagrados indisponíveis; seguindo sem elas:', String(error?.message || error).slice(0, 200));
     }
   }
-  return gerarTextoTCC({
-    tema, objetivo, fontes, pageCount,
+  await onProgress(58, 'Redigindo introdução, fundamentação teórica, metodologia, discussão e conclusão...');
+  const resultado = await gerarTextoTCC({
+    tema, objetivo, fontes, pageCount, onProgress,
     citacoesConsagradas: citacoes,
-    fontesBuscaCitacoes: fontesBusca
+    fontesBuscaCitacoes: fontesBusca,
+    onProgress
   });
+  await onProgress(88, 'Auditoria concluída. Preparando os arquivos finais...');
+  return resultado;
 }
 
 module.exports = {
