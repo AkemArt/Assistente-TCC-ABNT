@@ -99,6 +99,10 @@ function buildTccPageCountMenu(customId) {
     .setCustomId(customId)
     .setPlaceholder('Selecione a quantidade de páginas')
     .addOptions(
+      { label: '2 páginas', value: '2', description: 'Teste curto de geração' },
+      { label: '4 páginas', value: '4' },
+      { label: '6 páginas', value: '6' },
+      { label: '8 páginas', value: '8' },
       { label: '10 páginas', value: '10', description: 'Trabalho curto' },
       { label: '15 páginas', value: '15' },
       { label: '20 páginas', value: '20' },
@@ -655,7 +659,7 @@ client.on(Events.InteractionCreate, async interaction => {
       }
       pendingTccProjects.delete(interaction.customId);
       const pageCount = Number(interaction.values[0]);
-      if (![10, 15, 20, 25, 30, 40, 50, 60].includes(pageCount)) {
+      if (![2, 4, 6, 8, 10, 15, 20, 25, 30, 40, 50, 60].includes(pageCount)) {
         return interaction.reply({ content: 'Quantidade de páginas inválida. Inicie novamente com /iniciar_tcc.', flags: MessageFlags.Ephemeral });
       }
       const project = { ...pending.project, pageCount: String(pageCount) };
