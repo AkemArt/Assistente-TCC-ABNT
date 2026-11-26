@@ -37,9 +37,7 @@ function listarModelosGemini() {
     .filter(Boolean)
     .map(m => MODELOS_GEMINI_SUBSTITUIDOS.get(m) || m);
   const baseOriginal = configurados.length ? configurados : MODELOS_GEMINI_PADRAO;
-  // Mantém os modelos configurados em primeiro lugar e inclui alternativas
-  // estáveis para indisponibilidade temporária do modelo principal.
-  const base = [...new Set([...baseOriginal, ...MODELOS_GEMINI_PADRAO])];
+  const base = [...new Set(baseOriginal)];
   const modeloAtivoNormalizado = MODELOS_GEMINI_SUBSTITUIDOS.get(modeloGeminiAtivo) || modeloGeminiAtivo;
   return modeloAtivoNormalizado && base.includes(modeloAtivoNormalizado)
     ? [modeloAtivoNormalizado, ...base.filter(m => m !== modeloAtivoNormalizado)]
@@ -57,10 +55,7 @@ function erroPermiteFallbackModelo(error) {
   // só repete a mesma falha e mantém o Discord preso em "pensando".
   if (erroCotaContaGemini(error)) return false;
   const cotaDoModelo = status === '429' || /HTTP\s*429|rate limit/i.test(mensagem);
-  // 502/503/504 podem afetar apenas uma rota/modelo. Depois dos retries
-  // internos, tenta os próximos modelos estáveis antes de interromper o TCC.
-  const indisponibilidadeDoModelo = erroGeminiTransitorio(error);
-  return modeloNaoDisponivel || cotaDoModelo || indisponibilidadeDoModelo;
+  return modeloNaoDisponivel || cotaDoModelo;
 }
 
 async function gerarConteudoGeminiComModelo(ai, request, etapa) {
