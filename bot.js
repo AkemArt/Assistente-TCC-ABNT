@@ -117,7 +117,14 @@ function buildTccPageCountMenu(customId) {
 
 async function processTccProject(interaction, project, totalLabel) {
   console.log(`📥 [${totalLabel}] Seleção de páginas recebida: ${project.pageCount}. Iniciando processamento.`);
-  console.log(`🧭 [${totalLabel}] Iniciando salvamento sem aguardar atualização visual do Discord.`);
+
+  // Atualiza a resposta imediatamente após o deferReply, antes de operações no banco.
+  await safeProgress(
+    interaction,
+    '🚀 **TCC iniciado — preparando o ambiente**\\n' +
+      formatarBarraProgresso(5, 'Registrando seu projeto e preparando a pesquisa acadêmica...'),
+    totalLabel
+  );
 
   let saved = project.savedProjectId ? { id: project.savedProjectId } : { id: 'novo' };
   if (!project.savedProjectId) {
