@@ -55,3 +55,13 @@ test('claim usa FOR UPDATE SKIP LOCKED para evitar dois workers pegarem a mesma 
     db.query = originalQuery;
   }
 });
+
+test('calcula novas tentativas progressivas com limite de 12 horas', () => {
+  const agora = Date.UTC(2026, 10, 26, 0, 0, 0);
+  const primeira = queue.calcularRetryAt(1, agora);
+  const segunda = queue.calcularRetryAt(2, agora);
+  const ultima = queue.calcularRetryAt(8, agora);
+  assert.equal(primeira.getTime() - agora, 30 * 60 * 1000);
+  assert.equal(segunda.getTime() - agora, 60 * 60 * 1000);
+  assert.equal(ultima.getTime() - agora, 12 * 60 * 60 * 1000);
+});
