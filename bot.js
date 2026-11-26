@@ -75,7 +75,7 @@ function withTimeout(promise, ms, label) {
 function formatarBarraProgresso(percentual, etapa) {
   const p = Math.max(0, Math.min(100, Math.round(percentual)));
   const preenchidos = Math.round(p / 10);
-  return `**${p}%** [${'█'.repeat(preenchidos)}${'░'.repeat(10 - preenchidos)}]\\n${etapa}`;
+  return `**${p}%** [${'█'.repeat(preenchidos)}${'░'.repeat(10 - preenchidos)}]\n${etapa}`;
 }
 
 function proximaRenovacaoGemini() {
@@ -170,6 +170,8 @@ async function processTccProject(interaction, project, totalLabel) {
     tccProjects.generateTccDocx(project, pesquisa),
     tccProjects.generateTccPptx(project, pesquisa)
   ]);
+
+  await safeProgress(interaction, '📄 **Documentos quase prontos**\\n' + formatarBarraProgresso(96, 'Validando integridade do Word e PowerPoint...'), totalLabel);
 
   const rawDocx = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer || []);
   const rawPptx = Buffer.isBuffer(pptxBuffer) ? pptxBuffer : Buffer.from(pptxBuffer || []);
