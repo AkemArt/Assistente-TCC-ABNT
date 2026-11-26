@@ -567,8 +567,7 @@ const {
 const {
   validarCitacoesConsagradas,
   formatarCitacaoConsagrada,
-  listarModelosGemini,
-  erroPermiteFallbackModelo
+  listarModelosGemini
 } = require('../ia-tcc');
 
 test('OpenAlex envia a chave no cabeçalho Authorization, nunca na URL', () => {
