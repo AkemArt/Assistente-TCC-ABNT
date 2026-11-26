@@ -23,15 +23,24 @@ function erroGeminiTransitorio(error) {
 // Prioriza os modelos estáveis mais recentes e mantém dois fallbacks atuais.
 // Evita depender de modelos 2.5 com acesso limitado para novos projetos. Defina GEMINI_MODEL no Render
 // (aceita vários, separados por vírgula) para escolher o modelo que sua chave realmente enxerga.
-const MODELOS_GEMINI_PADRAO = ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
+const MODELOS_GEMINI_PADRAO = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash-lite'];
+const MODELOS_GEMINI_SUBSTITUIDOS = new Map([
+  // Gemini 3.6 Flash foi encerrado na Gemini Developer API em 19/11/2026.
+  ['gemini-3.6-flash', 'gemini-3.7-flash']
+]);
 let modeloGeminiAtivo = null;
 
 function listarModelosGemini() {
   const configurados = String(process.env.GEMINI_MODEL || '')
-    .split(',').map(m => m.trim()).filter(Boolean);
-  const base = configurados.length ? configurados : MODELOS_GEMINI_PADRAO;
-  return modeloGeminiAtivo && base.includes(modeloGeminiAtivo)
-    ? [modeloGeminiAtivo, ...base.filter(m => m !== modeloGeminiAtivo)]
+    .split(',')
+    .map(m => m.trim())
+    .filter(Boolean)
+    .map(m => MODELOS_GEMINI_SUBSTITUIDOS.get(m) || m);
+  const baseOriginal = configurados.length ? configurados : MODELOS_GEMINI_PADRAO;
+  const base = [...new Set(baseOriginal)];
+  const modeloAtivoNormalizado = MODELOS_GEMINI_SUBSTITUIDOS.get(modeloGeminiAtivo) || modeloGeminiAtivo;
+  return modeloAtivoNormalizado && base.includes(modeloAtivoNormalizado)
+    ? [modeloAtivoNormalizado, ...base.filter(m => m !== modeloAtivoNormalizado)]
     : base;
 }
 
