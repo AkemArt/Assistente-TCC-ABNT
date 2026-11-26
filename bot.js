@@ -80,16 +80,20 @@ function formatarBarraProgresso(percentual, etapa) {
   return `**${p}%** [${'█'.repeat(preenchidos)}${'░'.repeat(10 - preenchidos)}]\n${etapa}`;
 }
 
+// Serializa as edições da resposta original para evitar alterações concorrentes.
+const progressEditQueues = new WeakMap();
+
 async function safeProgress(interaction, content, label) {
+  const anterior = progressEditQueues.get(interaction) || Promise.resolve();
+  const atualizacao = anterior.then(() => interaction.editReply({ content }));
+  // Uma falha não interrompe a fila; a próxima edição só começa após a atual terminar.
+  progressEditQueues.set(interaction, atualizacao.catch(() => {}));
+
   try {
-    await withTimeout(
-      interaction.editReply({ content }),
-      8000,
-      `${label}_discord_progress`
-    );
+    await atualizacao;
     return true;
   } catch (error) {
-    console.warn(`⚠️ [${label}] Não foi possível atualizar a mensagem de progresso; o processamento continuará:`, describeError(error));
+    console.warn(`⚠️ [${label}] Falha ao atualizar o progresso no Discord:`, describeError(error));
     return false;
   }
 }
