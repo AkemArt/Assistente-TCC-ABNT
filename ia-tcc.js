@@ -634,9 +634,9 @@ async function gerarTextoTCC({ tema, objetivo, fontes, pageCount = 10, citacoesC
     throw new Error('GEMINI_API_KEY ou GOOGLE_API_KEY não configurada. A geração acadêmica foi interrompida para não produzir texto genérico sem IA.');
   }
   if (!tema || !String(tema).trim()) throw new Error('Informe o tema do TCC.');
-  const paginasPermitidas = new Set([10, 15, 20, 25, 30, 40, 50, 60]);
+  const paginasPermitidas = new Set([2, 4, 6, 8, 10, 15, 20, 25, 30, 40, 50, 60]);
   if (!paginasPermitidas.has(Number(pageCount))) {
-    throw new Error('A quantidade de páginas deve ser uma das opções disponíveis: 10, 15, 20, 25, 30, 40, 50 ou 60.');
+    throw new Error('A quantidade de páginas deve ser uma das opções disponíveis: 2, 4, 6, 8, 10, 15, 20, 25, 30, 40, 50 ou 60.');
   }
   if (!Array.isArray(fontes) || !fontes.length) {
     throw new Error('Nenhuma fonte acadêmica foi localizada. Não será gerada uma redação com referências presumidas.');
