@@ -78,18 +78,6 @@ function formatarBarraProgresso(percentual, etapa) {
   return `**${p}%** [${'█'.repeat(preenchidos)}${'░'.repeat(10 - preenchidos)}]\n${etapa}`;
 }
 
-function proximaRenovacaoGemini() {
-  const agora = new Date();
-  const dataAtual = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
-  let instante = agora;
-  for (let minuto = 1; minuto <= 26 * 60; minuto += 1) {
-    instante = new Date(agora.getTime() + minuto * 60000);
-    const data = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(instante);
-    if (data !== dataAtual) break;
-  }
-  return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }).format(instante);
-}
-
 async function safeProgress(interaction, content, label) {
   try {
     await withTimeout(
@@ -589,7 +577,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const mensagem = /GEMINI_API_KEY|GOOGLE_API_KEY/i.test(erroTexto)
           ? '⚠️ A inteligência artificial do bot não está configurada no servidor. Avise o administrador. Nenhum documento foi gerado.'
           : /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto)
-          ? '⏸️ **A cota gratuita do Gemini foi atingida.** Seu projeto foi salvo, mas os documentos não foram concluídos. A próxima virada do dia no horário do Pacífico está estimada para **' + proximaRenovacaoGemini() + ' (horário de Brasília)**, mas o Google não garante que todas as cotas sejam renovadas nesse instante. Confira o horário de reset específico do modelo em https://aistudio.google.com/usage. Depois que a cota for liberada, será necessário solicitar novamente a geração. Depois da renovação, será necessário solicitar novamente a geração.'
+          ? '⏸️ **A cota gratuita do Gemini foi atingida.** Seu projeto foi salvo, mas os documentos não foram concluídos. O Google não informou um horário exato de renovação para esta cota. Consulte a disponibilidade e os limites do modelo em https://aistudio.google.com/usage. Quando a cota estiver disponível novamente, solicite a geração do projeto outra vez.'
           : /429|limite de requisições|OpenAlex|Crossref/i.test(erroTexto)
           ? '⚠️ O serviço de pesquisa acadêmica está temporariamente limitando consultas. Seu projeto foi registrado, mas nenhum documento foi gerado. Aguarde alguns minutos antes de tentar novamente.'
           : /Timeout/.test(erroTexto)
