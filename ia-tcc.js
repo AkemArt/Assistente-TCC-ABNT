@@ -9,7 +9,7 @@ function erroCotaContaGemini(error) {
   const status = String(error?.status || error?.code || '').toUpperCase();
   const mensagem = String(error?.message || '');
   return status === 'RESOURCE_EXHAUSTED' ||
-    /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|billing details/i.test(mensagem);
+    /RESOURCE_EXHAUSTED|You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|billing details/i.test(mensagem);
 }
 
 function erroGeminiTransitorio(error) {
