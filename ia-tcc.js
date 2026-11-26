@@ -880,8 +880,7 @@ async function gerarRascunhoComPesquisa({ tema, objetivo, limite = 8, pageCount 
   const resultado = await gerarTextoTCC({
     tema, objetivo, fontes, pageCount, onProgress,
     citacoesConsagradas: citacoes,
-    fontesBuscaCitacoes: fontesBusca,
-    onProgress
+    fontesBuscaCitacoes: fontesBusca
   });
   await onProgress(88, 'Auditoria concluída. Preparando os arquivos finais...');
   return resultado;
