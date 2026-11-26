@@ -686,6 +686,7 @@ test('troca de modelo Gemini: reconhece 404 e respeita GEMINI_MODEL com vários 
   assert.equal(erroPermiteFallbackModelo({ status: 404 }), true);
   assert.equal(erroPermiteFallbackModelo(new Error('models/x is no longer available')), true);
   assert.equal(erroPermiteFallbackModelo(new Error('HTTP 429 RESOURCE_EXHAUSTED')), false);
+  assert.equal(erroPermiteFallbackModelo(new Error('HTTP 429 rate limit exceeded')), true);
   assert.equal(erroPermiteFallbackModelo(new Error('Falha na API Gemini: RESOURCE_EXHAUSTED')), false);
   assert.equal(erroPermiteFallbackModelo({ message: 'RESOURCE_EXHAUSTED: quota exceeded' }), false);
   assert.equal(erroPermiteFallbackModelo(new Error('You exceeded your current quota, please check your plan and billing details')), false);
