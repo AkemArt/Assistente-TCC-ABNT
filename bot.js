@@ -72,6 +72,24 @@ function withTimeout(promise, ms, label) {
   });
 }
 
+function formatarBarraProgresso(percentual, etapa) {
+  const p = Math.max(0, Math.min(100, Math.round(percentual)));
+  const preenchidos = Math.round(p / 10);
+  return `**${p}%** [${'█'.repeat(preenchidos)}${'░'.repeat(10 - preenchidos)}]\\n${etapa}`;
+}
+
+function proximaRenovacaoGemini() {
+  const agora = new Date();
+  const dataAtual = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(agora);
+  let instante = agora;
+  for (let minuto = 1; minuto <= 26 * 60; minuto += 1) {
+    instante = new Date(agora.getTime() + minuto * 60000);
+    const data = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit' }).format(instante);
+    if (data !== dataAtual) break;
+  }
+  return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }).format(instante);
+}
+
 async function safeProgress(interaction, content, label) {
   try {
     await withTimeout(
@@ -133,26 +151,20 @@ async function processTccProject(interaction, project, totalLabel) {
   }
 
   // Atualização visual limitada a 8s: falha do Discord não pode bloquear a pesquisa.
-  await safeProgress(
-    interaction,
-    '🔎 Projeto registrado. Estou pesquisando artigos científicos e conferindo DOI, título, autoria, ano e relação das fontes com seu tema e objetivo. Essa etapa pode levar alguns minutos.',
-    totalLabel
-  );
+  await safeProgress(interaction, '📚 **Preparando sua pesquisa acadêmica**\\n' + formatarBarraProgresso(15, 'Consultando OpenAlex e Crossref, validando artigos, DOI e autoria...'), totalLabel);
 
   // Uma única pesquisa e uma única redação servem de base aos dois documentos.
   console.log(`🔎 [${totalLabel}] Iniciando pesquisa OpenAlex/Crossref e geração acadêmica.`);
   const pesquisa = await withTimeout(
-    tccProjects.generateTccResearch(project),
+    tccProjects.generateTccResearch(project, async (percentual, etapa) => {
+      await safeProgress(interaction, '🔬 **Pesquisa e redação acadêmica em andamento**\\n' + formatarBarraProgresso(percentual, etapa), totalLabel);
+    }),
     540000,
     `${totalLabel}_academic_research`
   );
   console.log(`✅ [${totalLabel}] Pesquisa acadêmica concluída. Preparando os documentos.`);
 
-  await safeProgress(
-    interaction,
-    '🧾 A pesquisa foi concluída e as afirmações citadas passaram pela conferência de evidências. Estou preparando o Word com a matriz de rastreabilidade e o PowerPoint com os links dos artigos.',
-    totalLabel
-  );
+  await safeProgress(interaction, '🧾 **Pesquisa e revisão concluídas**\\n' + formatarBarraProgresso(90, 'Montando o Word ABNT e a apresentação PowerPoint...'), totalLabel);
 
   const [docxBuffer, pptxBuffer] = await Promise.all([
     tccProjects.generateTccDocx(project, pesquisa),
@@ -186,7 +198,7 @@ async function processTccProject(interaction, project, totalLabel) {
     new AttachmentBuilder(rawDocx, { name: `TCC_ABNT_projeto_${saved.id}.docx` }),
     new AttachmentBuilder(rawPptx, { name: `Apresentacao_TCC_projeto_${saved.id}.pptx` })
   ];
-  const mensagemArquivos = `✅ Projeto nº ${saved.id}: Word ABNT e PowerPoint gerados e anexados. Confira os links dos artigos e valide as fontes com seu orientador.`;
+  const mensagemArquivos = `✅ **100% concluído!** Projeto nº ${saved.id}: Word ABNT e PowerPoint gerados e anexados. Confira os links dos artigos e valide as fontes com seu orientador.`;
 
   // A resposta original já foi deferida como ephemeral. Editá-la é mais
   // confiável do que criar um segundo webhook com followUp e evita duplicatas.
@@ -575,7 +587,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const mensagem = /GEMINI_API_KEY|GOOGLE_API_KEY/i.test(erroTexto)
           ? '⚠️ A inteligência artificial do bot não está configurada no servidor. Avise o administrador. Nenhum documento foi gerado.'
           : /You exceeded your current quota|check your plan and billing|quota exceeded|insufficient quota|RESOURCE_EXHAUSTED|billing details/i.test(erroTexto)
-          ? '⚠️ A cota da API Gemini foi esgotada. Nenhum documento foi gerado. O administrador precisa verificar o plano e o faturamento no Google AI Studio/Google Cloud antes de uma nova tentativa.'
+          ? '⏸️ **A cota gratuita do Gemini foi atingida.** Seu projeto foi salvo, mas os documentos não foram concluídos. A renovação diária é prevista para **' + proximaRenovacaoGemini() + ' (horário de Brasília)**, correspondente à meia-noite do Pacífico. É uma estimativa: confira a disponibilidade real em https://aistudio.google.com/usage. Depois da renovação, será necessário solicitar novamente a geração.'
           : /429|limite de requisições|OpenAlex|Crossref/i.test(erroTexto)
           ? '⚠️ O serviço de pesquisa acadêmica está temporariamente limitando consultas. Seu projeto foi registrado, mas nenhum documento foi gerado. Aguarde alguns minutos antes de tentar novamente.'
           : /Timeout/.test(erroTexto)
